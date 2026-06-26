@@ -1,16 +1,25 @@
 import { useState, type ReactNode } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import type { UserRole } from '../services/api'
 
 interface Props {
   children: ReactNode
 }
 
-const NAV_ITEMS = [
+interface NavItem {
+  to: string
+  label: string
+  icon: () => JSX.Element
+  roles?: UserRole[]
+}
+
+const ALL_NAV_ITEMS: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: HomeIcon },
-  { to: '/diagnostico', label: 'Nueva Evaluacion', icon: ClipboardIcon },
+  { to: '/diagnostico', label: 'Nueva Evaluacion', icon: ClipboardIcon, roles: ['auditor', 'admin'] },
   { to: '/historial', label: 'Historial', icon: HistoryIcon },
-  { to: '/empresa', label: 'Mis Empresas', icon: BuildingIcon },
+  { to: '/empresa', label: 'Mi Empresa', icon: BuildingIcon, roles: ['admin'] },
+  { to: '/usuarios', label: 'Usuarios', icon: UsersIcon, roles: ['admin'] },
 ]
 
 function HomeIcon() {
@@ -49,6 +58,15 @@ function BuildingIcon() {
   )
 }
 
+function UsersIcon() {
+  return (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+        d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 10-4-4 4 4 0 004 4zm6 0a4 4 0 10-3-3.87" />
+    </svg>
+  )
+}
+
 function ChevronLeft() {
   return (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -69,6 +87,8 @@ export default function Layout({ children }: Props) {
   const [collapsed, setCollapsed] = useState(false)
   const { user, userProfile, signOut } = useAuth()
   const navigate = useNavigate()
+
+  const role = userProfile?.role ?? 'usuario'
 
   const handleSignOut = async () => {
     await signOut()
@@ -110,23 +130,25 @@ export default function Layout({ children }: Props) {
 
         {/* Nav */}
         <nav className="flex-1 py-4">
-          {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === '/'}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors ${
-                  isActive
-                    ? 'bg-blue-700 text-white'
-                    : 'text-blue-200 hover:bg-blue-800 hover:text-white'
-                }`
-              }
-            >
-              <Icon />
-              {!collapsed && <span>{label}</span>}
-            </NavLink>
-          ))}
+          {ALL_NAV_ITEMS
+            .filter((item) => !item.roles || item.roles.includes(role))
+            .map(({ to, label, icon: Icon }) => (
+              <NavLink
+                key={to}
+                to={to}
+                end={to === '/'}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors ${
+                    isActive
+                      ? 'bg-blue-700 text-white'
+                      : 'text-blue-200 hover:bg-blue-800 hover:text-white'
+                  }`
+                }
+              >
+                <Icon />
+                {!collapsed && <span>{label}</span>}
+              </NavLink>
+            ))}
         </nav>
 
         {/* User footer */}
@@ -137,7 +159,12 @@ export default function Layout({ children }: Props) {
             </div>
             {!collapsed && (
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{displayName}</p>
+                <div className="flex items-center gap-2 mb-0.5">
+                  <p className="text-sm font-medium truncate">{displayName}</p>
+                  <span className="text-[10px] font-semibold uppercase tracking-wide bg-blue-700 text-blue-50 px-1.5 py-0.5 rounded shrink-0">
+                    {role}
+                  </span>
+                </div>
                 <button
                   onClick={handleSignOut}
                   className="text-xs text-blue-300 hover:text-white transition-colors"

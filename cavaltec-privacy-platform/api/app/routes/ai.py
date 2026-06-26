@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_auditor_or_admin
 from app.models.user import User
 from app.models.company import Company
 from app.models.assessment import Assessment
@@ -61,7 +61,7 @@ def explain_question(
     request: Request,
     body: ExplainQuestionRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_auditor_or_admin),
 ):
     question = QUESTIONS_BY_ID.get(body.question_id)
     if not question:
@@ -83,7 +83,7 @@ def answer_guidance(
     request: Request,
     body: AnswerGuidanceRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_auditor_or_admin),
 ):
     question = QUESTIONS_BY_ID.get(body.question_id)
     if not question:
@@ -105,7 +105,7 @@ def get_recommendations(
     request: Request,
     body: RecommendationsRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_auditor_or_admin),
 ):
     assessment = _get_assessment_with_access(body.assessment_id, current_user, db)
 
@@ -131,7 +131,7 @@ def interpret_score(
     request: Request,
     body: InterpretScoreRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_auditor_or_admin),
 ):
     assessment = _get_assessment_with_access(body.assessment_id, current_user, db)
 
@@ -160,7 +160,7 @@ def chat_with_agent(
     request: Request,
     body: ChatRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_auditor_or_admin),
 ):
     assessment = _get_assessment_with_access(body.assessment_id, current_user, db)
 
@@ -192,7 +192,7 @@ def question_chat(
     request: Request,
     body: QuestionChatRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_auditor_or_admin),
 ):
     question = QUESTIONS_BY_ID.get(body.question_id)
     if not question:

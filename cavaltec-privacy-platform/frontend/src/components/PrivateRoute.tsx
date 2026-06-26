@@ -1,13 +1,15 @@
 import { type ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import type { UserRole } from '../services/api'
 
 interface Props {
   children: ReactNode
+  roles?: UserRole[]
 }
 
-export default function PrivateRoute({ children }: Props) {
-  const { user, loading } = useAuth()
+export default function PrivateRoute({ children, roles }: Props) {
+  const { user, userProfile, loading } = useAuth()
 
   if (loading) {
     return (
@@ -19,6 +21,10 @@ export default function PrivateRoute({ children }: Props) {
 
   if (!user) {
     return <Navigate to="/login" replace />
+  }
+
+  if (roles && userProfile && !roles.includes(userProfile.role)) {
+    return <Navigate to="/" replace />
   }
 
   return <>{children}</>

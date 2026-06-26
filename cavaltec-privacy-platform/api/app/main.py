@@ -10,10 +10,11 @@ from slowapi.errors import RateLimitExceeded
 from contextlib import asynccontextmanager
 
 from app.core.config import settings
-from app.core.database import engine, Base
-from app.routes import auth, companies, assessments, ai, reports
+from app.core.database import engine, Base, SessionLocal
+from app.routes import auth, companies, assessments, ai, reports, users
 
 import app.models  # noqa: F401 — ensure models are registered before create_all
+from app.models.user import User
 
 logger = logging.getLogger(__name__)
 limiter = Limiter(key_func=get_remote_address)
@@ -35,6 +36,15 @@ def _warmup_ai_client():
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     Base.metadata.create_all(bind=engine)
+    # Migrate legacy role name
+    db = SessionLocal()
+    try:
+        db.query(User).filter(User.role == "evaluador").update({User.role: "usuario"})
+        db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
     # Start AI auth warmup in background so it doesn't block server startup
     threading.Thread(target=_warmup_ai_client, daemon=True).start()
     yield
@@ -59,6 +69,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(users.router)
 app.include_router(companies.router)
 app.include_router(assessments.router)
 app.include_router(ai.router)

@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard'
 import CompanyInfo from './pages/CompanyInfo'
 import History from './pages/History'
 import AssessmentChat from './pages/AssessmentChat'
+import Users from './pages/Users'
 
 export default function App() {
   return (
@@ -24,7 +25,7 @@ export default function App() {
           <Route
             path="/empresa"
             element={
-              <PrivateRoute>
+              <PrivateRoute roles={['admin']}>
                 <CompanyInfo />
               </PrivateRoute>
             }
@@ -40,8 +41,16 @@ export default function App() {
           <Route
             path="/diagnostico"
             element={
-              <PrivateRoute>
+              <PrivateRoute roles={['auditor', 'admin']}>
                 <AssessmentChat />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/usuarios"
+            element={
+              <PrivateRoute roles={['admin']}>
+                <Users />
               </PrivateRoute>
             }
           />

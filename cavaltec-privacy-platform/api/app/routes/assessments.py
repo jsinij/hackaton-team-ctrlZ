@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_auditor_or_admin
 from app.models.user import User
 from app.models.company import Company
 from app.models.assessment import Assessment, AuditLog
@@ -27,7 +27,7 @@ def _assert_company_access(company: Company | None, current_user: User):
 def create_assessment(
     body: AssessmentCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_auditor_or_admin),
 ):
     company = db.query(Company).filter(Company.id == body.company_id).first()
     _assert_company_access(company, current_user)
@@ -65,7 +65,7 @@ def submit_answers(
     assessment_id: str,
     body: AnswerSubmit,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_auditor_or_admin),
 ):
     assessment = db.query(Assessment).filter(Assessment.id == assessment_id).first()
     if not assessment:
@@ -98,7 +98,7 @@ def submit_answers(
 def delete_assessment(
     assessment_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_auditor_or_admin),
 ):
     assessment = db.query(Assessment).filter(Assessment.id == assessment_id).first()
     if not assessment:
@@ -115,7 +115,7 @@ def delete_assessment(
 def complete_assessment(
     assessment_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_auditor_or_admin),
 ):
     assessment = db.query(Assessment).filter(Assessment.id == assessment_id).first()
     if not assessment:

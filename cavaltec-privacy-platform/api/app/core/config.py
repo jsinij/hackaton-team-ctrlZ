@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     jwt_secret: str = "changeme"
     environment: str = "development"
 
+    admin_email: str = "hackatonsuarez@gmail.com"
+
     firebase_project_id: str = ""
     firebase_client_email: str = ""
     firebase_private_key: str = ""

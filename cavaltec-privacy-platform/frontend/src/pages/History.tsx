@@ -33,6 +33,9 @@ export default function History() {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
+  const role = userProfile?.role ?? 'usuario'
+  const canDelete = role === 'auditor' || role === 'admin'
+
   useEffect(() => {
     let cancelled = false
 
@@ -184,13 +187,15 @@ export default function History() {
                           {downloadingId === a.id ? 'Descargando...' : 'Descargar PDF'}
                         </button>
                       )}
-                      <button
-                        onClick={() => setConfirmDeleteId(a.id)}
-                        disabled={deletingId === a.id}
-                        className="text-red-500 hover:text-red-700 text-xs transition-colors disabled:opacity-50"
-                      >
-                        {deletingId === a.id ? 'Eliminando...' : 'Eliminar'}
-                      </button>
+                      {canDelete && (
+                        <button
+                          onClick={() => setConfirmDeleteId(a.id)}
+                          disabled={deletingId === a.id}
+                          className="text-red-500 hover:text-red-700 text-xs transition-colors disabled:opacity-50"
+                        >
+                          {deletingId === a.id ? 'Eliminando...' : 'Eliminar'}
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

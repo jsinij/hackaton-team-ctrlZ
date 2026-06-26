@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.services.firebase_service import verify_token
@@ -41,11 +42,15 @@ def firebase_login(body: FirebaseLoginRequest, db: Session = Depends(get_db)):
             firebase_uid=firebase_uid,
             email=email,
             name=name,
-            role="evaluador",
+            role="usuario",
         )
         db.add(user)
 
     db.flush()
+
+    if email.lower() == settings.admin_email.lower():
+        user.role = "admin"
+        user.updated_at = datetime.now(timezone.utc)
 
     audit = AuditLog(
         user_id=user.id,

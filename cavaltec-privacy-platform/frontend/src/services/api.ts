@@ -2,11 +2,15 @@ import axios, { type AxiosInstance } from 'axios'
 
 // ─── Domain types ────────────────────────────────────────────────────────────
 
+export type UserRole = 'usuario' | 'auditor' | 'admin'
+
 export interface User {
   id: string
   email: string
   name: string
+  role: UserRole
   company_id?: string
+  created_at?: string
 }
 
 export interface Company {
@@ -82,7 +86,7 @@ export async function firebaseLogin(
 // ─── User ────────────────────────────────────────────────────────────────────
 
 export async function getMe(client: AxiosInstance): Promise<User> {
-  const { data } = await client.get<User>('/users/me')
+  const { data } = await client.get<User>('/auth/me')
   return data
 }
 
@@ -178,8 +182,9 @@ export async function explainQuestion(
   client: AxiosInstance,
   questionId: string,
 ): Promise<{ explanation: string }> {
-  const { data } = await client.get<{ explanation: string }>(
-    `/ai/explain-question/${questionId}`,
+  const { data } = await client.post<{ explanation: string }>(
+    '/ai/explain-question',
+    { question_id: questionId },
   )
   return data
 }
@@ -188,8 +193,9 @@ export async function getAnswerGuidance(
   client: AxiosInstance,
   questionId: string,
 ): Promise<{ guidance: string }> {
-  const { data } = await client.get<{ guidance: string }>(
-    `/ai/answer-guidance/${questionId}`,
+  const { data } = await client.post<{ guidance: string }>(
+    '/ai/answer-guidance',
+    { question_id: questionId },
   )
   return data
 }
@@ -198,8 +204,9 @@ export async function getRecommendations(
   client: AxiosInstance,
   assessmentId: string,
 ): Promise<{ recommendations: string[] }> {
-  const { data } = await client.get<{ recommendations: string[] }>(
-    `/ai/recommendations/${assessmentId}`,
+  const { data } = await client.post<{ recommendations: string[] }>(
+    '/ai/recommendations',
+    { assessment_id: assessmentId },
   )
   return data
 }
@@ -208,8 +215,9 @@ export async function interpretScore(
   client: AxiosInstance,
   assessmentId: string,
 ): Promise<{ interpretation: string }> {
-  const { data } = await client.get<{ interpretation: string }>(
-    `/ai/interpret-score/${assessmentId}`,
+  const { data } = await client.post<{ interpretation: string }>(
+    '/ai/interpret-score',
+    { assessment_id: assessmentId },
   )
   return data
 }
@@ -220,9 +228,10 @@ export async function downloadReport(
   client: AxiosInstance,
   assessmentId: string,
 ): Promise<Blob> {
-  const { data } = await client.get<Blob>(`/reports/${assessmentId}/pdf`, {
-    responseType: 'blob',
-  })
+  const { data } = await client.get<Blob>(
+    `/reports/assessment/${assessmentId}/pdf`,
+    { responseType: 'blob' },
+  )
   return data
 }
 
@@ -261,4 +270,26 @@ export async function questionChat(
     history,
   })
   return data.message
+}
+
+// ─── Admin: Users ────────────────────────────────────────────────────────────
+
+export interface UserUpdatePayload {
+  name?: string
+  role?: UserRole
+  company_id?: string | null
+}
+
+export async function listUsers(client: AxiosInstance): Promise<User[]> {
+  const { data } = await client.get<User[]>('/users')
+  return data
+}
+
+export async function updateUser(
+  client: AxiosInstance,
+  id: string,
+  payload: UserUpdatePayload,
+): Promise<User> {
+  const { data } = await client.put<User>(`/users/${id}`, payload)
+  return data
 }

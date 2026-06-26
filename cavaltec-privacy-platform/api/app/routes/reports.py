@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.security import require_auditor_or_admin
 from app.models.user import User
 from app.models.company import Company
 from app.models.assessment import Assessment, AuditLog
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 def download_assessment_pdf(
     assessment_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_auditor_or_admin),
 ):
     assessment = db.query(Assessment).filter(Assessment.id == assessment_id).first()
     if not assessment:

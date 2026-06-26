@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_admin
 from app.models.user import User
 from app.models.company import Company
 from app.models.assessment import Assessment
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/companies", tags=["companies"])
 def create_company(
     body: CompanyCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     existing = db.query(Company).filter(Company.nit == body.nit).first()
     if existing:
@@ -82,7 +82,7 @@ def update_company(
     company_id: str,
     body: CompanyUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company:

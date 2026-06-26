@@ -41,6 +41,9 @@ export default function Dashboard() {
 
   const displayName = userProfile?.name ?? user?.displayName ?? 'usuario'
   const firstName = displayName.split(' ')[0]
+  const role = userProfile?.role ?? 'usuario'
+  const canEvaluate = role === 'auditor' || role === 'admin'
+  const canCreateCompany = role === 'admin'
 
   // Load company list once on mount
   useEffect(() => {
@@ -143,12 +146,18 @@ export default function Dashboard() {
           <p className="text-sm text-gray-500 mb-6">
             Para iniciar el diagnostico de cumplimiento necesitas registrar primero los datos de tu empresa.
           </p>
-          <button
-            onClick={() => navigate('/empresa')}
-            className="bg-blue-700 hover:bg-blue-800 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition-colors"
-          >
-            Registrar empresa
-          </button>
+          {canCreateCompany ? (
+            <button
+              onClick={() => navigate('/empresa')}
+              className="bg-blue-700 hover:bg-blue-800 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition-colors"
+            >
+              Registrar empresa
+            </button>
+          ) : (
+            <p className="text-sm text-amber-600">
+              Contacta al administrador para registrar tu empresa.
+            </p>
+          )}
         </div>
       ) : (
         <>
@@ -201,6 +210,7 @@ export default function Dashboard() {
                         {new Date(latestCompleted.completed_at ?? latestCompleted.created_at).toLocaleDateString('es-CO')}
                       </p>
                     </div>
+                    {canEvaluate && (
                     <button
                       onClick={() => { void handleNewAssessment() }}
                       disabled={startingNew}
@@ -208,6 +218,7 @@ export default function Dashboard() {
                     >
                       {startingNew ? 'Iniciando...' : 'Nueva Evaluacion'}
                     </button>
+                  )}
                   </div>
 
                   {/* Gaps card */}
@@ -238,13 +249,19 @@ export default function Dashboard() {
                 /* No assessments yet */
                 <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
                   <p className="text-gray-500 mb-5">Aun no tienes diagnosticos completados.</p>
-                  <button
-                    onClick={() => { void handleNewAssessment() }}
-                    disabled={startingNew}
-                    className="bg-blue-700 hover:bg-blue-800 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition-colors disabled:opacity-50"
-                  >
-                    {startingNew ? 'Iniciando...' : 'Iniciar primer diagnostico'}
-                  </button>
+                  {canEvaluate ? (
+                    <button
+                      onClick={() => { void handleNewAssessment() }}
+                      disabled={startingNew}
+                      className="bg-blue-700 hover:bg-blue-800 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      {startingNew ? 'Iniciando...' : 'Iniciar primer diagnostico'}
+                    </button>
+                  ) : (
+                    <p className="text-sm text-amber-600">
+                      Solo los auditores y administradores pueden realizar evaluaciones.
+                    </p>
+                  )}
                 </div>
               )}
             </>

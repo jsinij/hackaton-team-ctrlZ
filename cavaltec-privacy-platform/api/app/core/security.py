@@ -38,6 +38,9 @@ def get_current_user(
     return user
 
 
+VALID_ROLES = {"usuario", "auditor", "admin"}
+
+
 def require_role(*roles: str):
     def checker(current_user: User = Depends(get_current_user)) -> User:
         if current_user.role not in roles:
@@ -48,3 +51,21 @@ def require_role(*roles: str):
         return current_user
 
     return checker
+
+
+def require_admin(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Se requiere rol: admin",
+        )
+    return current_user
+
+
+def require_auditor_or_admin(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.role not in ("auditor", "admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Se requiere rol: auditor o admin",
+        )
+    return current_user
