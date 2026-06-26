@@ -43,3 +43,18 @@ class InterpretScoreResponse(BaseModel):
     score: float
     company_name: str
     interpretation: str
+
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class ChatRequest(BaseModel):
+    assessment_id: str
+    message: str
+    history: list[ChatMessage] = []
+
+
+class ChatResponse(BaseModel):
+    message: str

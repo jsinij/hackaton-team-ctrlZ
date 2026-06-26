@@ -1,3 +1,6 @@
+import asyncio
+import logging
+import threading
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -12,13 +15,28 @@ from app.routes import auth, companies, assessments, ai, reports
 
 import app.models  # noqa: F401 — ensure models are registered before create_all
 
-
+logger = logging.getLogger(__name__)
 limiter = Limiter(key_func=get_remote_address)
+
+
+def _warmup_ai_client():
+    """Pre-authenticate the Azure AI agent in a background thread at startup."""
+    try:
+        from app.services.ai_service import _get_client
+        client = _get_client()
+        # A lightweight call to trigger token acquisition and validate the agent exists
+        client.agents.get_agent(settings.azure_ai_agent_id)
+        logger.info("Azure AI agent autenticado y listo.")
+        print("✓ Azure AI agent autenticado y listo.", flush=True)
+    except Exception as exc:
+        logger.warning("No se pudo pre-autenticar el agente Azure AI: %s", exc)
 
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     Base.metadata.create_all(bind=engine)
+    # Start AI auth warmup in background so it doesn't block server startup
+    threading.Thread(target=_warmup_ai_client, daemon=True).start()
     yield
 
 

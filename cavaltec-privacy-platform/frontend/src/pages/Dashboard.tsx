@@ -11,6 +11,9 @@ import {
 } from '../services/api'
 import Layout from '../components/Layout'
 import ScoreGauge from '../components/ScoreGauge'
+import { QUESTIONS } from './AssessmentChat'
+
+const QUESTION_TEXT: Record<string, string> = Object.fromEntries(QUESTIONS.map((q) => [q.id, q.text]))
 
 function StatCard({ label, value, color }: { label: string; value: string | number; color?: string }) {
   return (
@@ -82,7 +85,7 @@ export default function Dashboard() {
 
   const latestCompleted = assessments.find((a) => a.status === 'completed')
 
-  const gapCount = latestCompleted?.result?.gaps?.length ?? 0
+  const gapCount = latestCompleted?.gaps?.length ?? 0
 
   return (
     <Layout>
@@ -131,7 +134,7 @@ export default function Dashboard() {
             <StatCard label="Evaluaciones" value={assessments.length} />
             <StatCard
               label="Ultimo puntaje"
-              value={latestCompleted ? `${latestCompleted.result?.score ?? 0}%` : 'Sin datos'}
+              value={latestCompleted ? `${latestCompleted.score ?? 0}%` : 'Sin datos'}
               color={latestCompleted ? 'text-teal-700' : 'text-gray-400'}
             />
           </div>
@@ -144,7 +147,7 @@ export default function Dashboard() {
                   Ultimo diagnostico
                 </h2>
                 <div className="flex flex-col items-center">
-                  <ScoreGauge score={latestCompleted.result?.score ?? 0} />
+                  <ScoreGauge score={latestCompleted.score ?? 0} />
                   <p className="text-xs text-gray-400 mt-3">
                     {new Date(latestCompleted.completed_at ?? latestCompleted.created_at).toLocaleDateString('es-CO')}
                   </p>
@@ -163,12 +166,12 @@ export default function Dashboard() {
                 <h2 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">
                   Brechas identificadas ({gapCount})
                 </h2>
-                {latestCompleted.result?.gaps && latestCompleted.result.gaps.length > 0 ? (
+                {latestCompleted.gaps && latestCompleted.gaps.length > 0 ? (
                   <ul className="space-y-3">
-                    {latestCompleted.result.gaps.slice(0, 5).map((gap) => (
-                      <li key={gap.question_id} className="flex gap-2 text-sm">
+                    {latestCompleted.gaps.slice(0, 5).map((gapId) => (
+                      <li key={gapId} className="flex gap-2 text-sm">
                         <span className="mt-0.5 w-2 h-2 rounded-full bg-red-400 shrink-0" />
-                        <span className="text-gray-700">{gap.question_text}</span>
+                        <span className="text-gray-700">{QUESTION_TEXT[gapId] ?? gapId}</span>
                       </li>
                     ))}
                     {gapCount > 5 && (

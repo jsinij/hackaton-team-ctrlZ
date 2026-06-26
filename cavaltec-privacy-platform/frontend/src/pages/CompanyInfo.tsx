@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useApi } from '../hooks/useApi'
 import {
@@ -33,8 +34,9 @@ function FieldError({ msg }: { msg?: string }) {
 }
 
 export default function CompanyInfo() {
-  const { userProfile } = useAuth()
+  const { userProfile, refreshProfile } = useAuth()
   const getClient = useApi()
+  const navigate = useNavigate()
 
   const [existing, setExisting] = useState<Company | null>(null)
   const [loadingData, setLoadingData] = useState(true)
@@ -106,11 +108,12 @@ export default function CompanyInfo() {
       if (existing) {
         const updated = await updateCompany(client, existing.id, form)
         setExisting(updated)
+        setSaveSuccess(true)
       } else {
-        const created = await createCompany(client, form)
-        setExisting(created)
+        await createCompany(client, form)
+        await refreshProfile()
+        navigate('/')
       }
-      setSaveSuccess(true)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error al guardar la empresa'
       setSaveError(msg)

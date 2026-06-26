@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     azure_foundry_model: str = "gpt-4o"
     azure_foundry_api_version: str = "2024-02-01"
 
+    azure_ai_project_endpoint: str = ""
+    azure_ai_agent_id: str = ""
+
     backend_cors_origins: List[str] = ["http://localhost:3000"]
 
     @field_validator("backend_cors_origins", mode="before")

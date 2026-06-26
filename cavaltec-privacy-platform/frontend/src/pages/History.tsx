@@ -4,6 +4,7 @@ import { useApi } from '../hooks/useApi'
 import {
   getCompanyAssessments,
   downloadReport,
+  deleteAssessment,
   type Assessment,
 } from '../services/api'
 import Layout from '../components/Layout'
@@ -29,6 +30,8 @@ export default function History() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -70,9 +73,23 @@ export default function History() {
       a.click()
       URL.revokeObjectURL(url)
     } catch {
-      alert('No se pudo descargar el reporte.')
+      setError('No se pudo descargar el reporte.')
     } finally {
       setDownloadingId(null)
+    }
+  }
+
+  const handleDelete = async (id: string) => {
+    setDeletingId(id)
+    setConfirmDeleteId(null)
+    try {
+      const client = await getClient()
+      await deleteAssessment(client, id)
+      setAssessments((prev) => prev.filter((a) => a.id !== id))
+    } catch {
+      setError('No se pudo eliminar la evaluacion.')
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -89,6 +106,33 @@ export default function History() {
       {error && (
         <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
           {error}
+          <button onClick={() => setError(null)} className="ml-2 underline">Cerrar</button>
+        </div>
+      )}
+
+      {/* Confirm delete dialog */}
+      {confirmDeleteId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4">
+            <h3 className="text-base font-semibold text-gray-900 mb-2">Eliminar evaluacion</h3>
+            <p className="text-sm text-gray-500 mb-5">
+              Esta accion no se puede deshacer. Se eliminara la evaluacion y sus resultados de forma permanente.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setConfirmDeleteId(null)}
+                className="flex-1 border border-gray-300 text-gray-700 text-sm font-medium py-2 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => { void handleDelete(confirmDeleteId) }}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm font-medium py-2 rounded-lg transition-colors"
+              >
+                Eliminar
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -121,24 +165,33 @@ export default function History() {
                 <tr key={a.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
                   <td className="px-5 py-4 text-gray-700">{formatDate(a.created_at)}</td>
                   <td className="px-5 py-4 font-semibold text-teal-700">
-                    {a.result ? `${a.result.score}%` : '—'}
+                    {a.score != null ? `${a.score}%` : '—'}
                   </td>
                   <td className="px-5 py-4">
                     <StatusBadge status={a.status} />
                   </td>
                   <td className="px-5 py-4 text-gray-600">
-                    {a.result ? a.result.gaps.length : '—'}
+                    {a.gaps != null ? a.gaps.length : '—'}
                   </td>
                   <td className="px-5 py-4">
-                    {a.status === 'completed' && (
+                    <div className="flex items-center gap-3">
+                      {a.status === 'completed' && (
+                        <button
+                          onClick={() => { void handleDownload(a) }}
+                          disabled={downloadingId === a.id}
+                          className="text-blue-700 hover:text-blue-900 font-medium text-xs transition-colors disabled:opacity-50"
+                        >
+                          {downloadingId === a.id ? 'Descargando...' : 'Descargar PDF'}
+                        </button>
+                      )}
                       <button
-                        onClick={() => { void handleDownload(a) }}
-                        disabled={downloadingId === a.id}
-                        className="text-blue-700 hover:text-blue-900 font-medium text-xs transition-colors disabled:opacity-50"
+                        onClick={() => setConfirmDeleteId(a.id)}
+                        disabled={deletingId === a.id}
+                        className="text-red-500 hover:text-red-700 text-xs transition-colors disabled:opacity-50"
                       >
-                        {downloadingId === a.id ? 'Descargando...' : 'Descargar PDF'}
+                        {deletingId === a.id ? 'Eliminando...' : 'Eliminar'}
                       </button>
-                    )}
+                    </div>
                   </td>
                 </tr>
               ))}

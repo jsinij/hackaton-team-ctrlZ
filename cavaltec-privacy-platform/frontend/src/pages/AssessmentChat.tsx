@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useApi } from '../hooks/useApi'
@@ -10,10 +10,12 @@ import {
   explainQuestion,
   getAnswerGuidance,
   downloadReport,
+  chatWithAgent,
   type Assessment,
   type AssessmentResult,
   type Answer,
   type AnswerValue,
+  type ChatMessage,
 } from '../services/api'
 import Layout from '../components/Layout'
 import ScoreGauge from '../components/ScoreGauge'
@@ -122,6 +124,20 @@ function AiDrawer({ title, content, loading, onClose }: AiDrawerProps) {
   )
 }
 
+function TypingIndicator() {
+  return (
+    <div className="flex justify-start">
+      <div className="bg-gray-100 rounded-2xl rounded-tl-sm px-4 py-3">
+        <div className="flex gap-1 items-center h-4">
+          <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+          <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+          <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 type DrawerMode = 'explain' | 'guidance' | null
@@ -134,6 +150,9 @@ export default function AssessmentChat() {
 
   const assessmentIdParam = searchParams.get('id')
 
+  // Show landing screen for new assessments; skip it when resuming via URL param
+  const [started, setStarted] = useState(!!assessmentIdParam)
+
   const [assessment, setAssessment] = useState<Assessment | null>(null)
   const [result, setResult] = useState<AssessmentResult | null>(null)
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -144,14 +163,59 @@ export default function AssessmentChat() {
   const [error, setError] = useState<string | null>(null)
   const [downloading, setDownloading] = useState(false)
 
+  // Chat state
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
+  const [chatInput, setChatInput] = useState('')
+  const [chatLoading, setChatLoading] = useState(false)
+  const chatEndRef = useRef<HTMLDivElement>(null)
+
   // AI Drawer
   const [drawerMode, setDrawerMode] = useState<DrawerMode>(null)
   const [drawerContent, setDrawerContent] = useState('')
   const [drawerLoading, setDrawerLoading] = useState(false)
 
-  // ── Initialise assessment ──────────────────────────────────────────────────
+  // ── Scroll chat to bottom on new messages ─────────────────────────────────
 
   useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [chatMessages, chatLoading])
+
+  // ── Auto-trigger initial AI analysis when result loads ────────────────────
+
+  useEffect(() => {
+    if (!result || !assessment) return
+
+    const triggerInitialAnalysis = async () => {
+      setChatLoading(true)
+      try {
+        const client = await getClient()
+        const msg = await chatWithAgent(
+          client,
+          assessment.id,
+          'Analiza los resultados de mi evaluación y proporciona recomendaciones específicas y accionables para mejorar el cumplimiento de la Ley 1581. Menciona las brechas más críticas, sus implicaciones legales y los pasos concretos que debo seguir.',
+          [],
+        )
+        setChatMessages([{ role: 'assistant', content: msg }])
+      } catch {
+        setChatMessages([{
+          role: 'assistant',
+          content:
+            'Hola, soy tu asistente especializado en Ley 1581. Puedo ayudarte a interpretar tus resultados y resolver dudas sobre protección de datos en Colombia. ¿Qué quieres saber?',
+        }])
+      } finally {
+        setChatLoading(false)
+      }
+    }
+
+    void triggerInitialAnalysis()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result?.id])
+
+  // ── Initialise assessment (only after user clicks "Comenzar") ────────────
+
+  useEffect(() => {
+    if (!started) return
+
     let cancelled = false
 
     const init = async () => {
@@ -170,7 +234,6 @@ export default function AssessmentChat() {
             return
           }
           a = await createAssessment(client, companyId)
-          // update URL without re-mounting
           const url = new URL(window.location.href)
           url.searchParams.set('id', a.id)
           window.history.replaceState({}, '', url.toString())
@@ -179,14 +242,27 @@ export default function AssessmentChat() {
         if (!cancelled) {
           setAssessment(a)
 
-          if (a.status === 'completed' && a.result) {
-            setResult(a.result)
+          if (a.status === 'completed') {
+            // Re-fetch as AssessmentResult shape via complete — but assessment IS the result here
+            // We build a minimal AssessmentResult from the Assessment data
+            setResult({
+              id: a.id,
+              company_id: a.company_id,
+              status: a.status,
+              score: a.score ?? 0,
+              gaps: a.gaps ?? [],
+              gap_details: [],
+              completed_at: a.completed_at ?? a.created_at,
+            })
           } else {
-            // Restore already-saved answers
+            const backendToFrontend: Record<string, AnswerValue> = {
+              si: 'yes', parcial: 'partial', no: 'no',
+            }
             const restored: Record<string, AnswerValue> = {}
-            a.answers.forEach((ans) => { restored[ans.question_id] = ans.value })
+            Object.entries(a.answers).forEach(([qid, val]) => {
+              restored[qid] = backendToFrontend[val] ?? (val as AnswerValue)
+            })
             setAnswers(restored)
-            // Advance to first unanswered
             const firstUnanswered = QUESTIONS.findIndex((q) => !restored[q.id])
             setCurrentIndex(firstUnanswered === -1 ? QUESTIONS.length - 1 : firstUnanswered)
           }
@@ -201,7 +277,7 @@ export default function AssessmentChat() {
     void init()
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [started])
 
   // ── Answer a question ──────────────────────────────────────────────────────
 
@@ -223,7 +299,6 @@ export default function AssessmentChat() {
 
       const isLast = currentIndex === QUESTIONS.length - 1
       if (isLast) {
-        // All answered — complete
         setCompleting(true)
         const res = await completeAssessment(client, assessment.id)
         setResult(res)
@@ -238,7 +313,35 @@ export default function AssessmentChat() {
     }
   }
 
-  // ── AI helpers ─────────────────────────────────────────────────────────────
+  // ── Chat ───────────────────────────────────────────────────────────────────
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!chatInput.trim() || !assessment || chatLoading) return
+
+    const userMessage = chatInput.trim()
+    setChatInput('')
+
+    const history = [...chatMessages]
+    const newMessages: ChatMessage[] = [...history, { role: 'user', content: userMessage }]
+    setChatMessages(newMessages)
+    setChatLoading(true)
+
+    try {
+      const client = await getClient()
+      const response = await chatWithAgent(client, assessment.id, userMessage, history)
+      setChatMessages([...newMessages, { role: 'assistant', content: response }])
+    } catch {
+      setChatMessages([...newMessages, {
+        role: 'assistant',
+        content: 'Lo siento, no pude procesar tu consulta. Intenta de nuevo.',
+      }])
+    } finally {
+      setChatLoading(false)
+    }
+  }
+
+  // ── AI Drawer helpers ──────────────────────────────────────────────────────
 
   const openDrawer = useCallback(async (mode: DrawerMode) => {
     const question = QUESTIONS[currentIndex]
@@ -288,6 +391,13 @@ export default function AssessmentChat() {
   const question = QUESTIONS[currentIndex]
   const answeredCount = Object.keys(answers).length
 
+  const scoreColor = result
+    ? result.score >= 80 ? 'text-green-600' : result.score >= 50 ? 'text-amber-600' : 'text-red-600'
+    : ''
+  const scoreLabel = result
+    ? result.score >= 80 ? 'Cumplimiento Alto' : result.score >= 50 ? 'Cumplimiento Medio' : 'Cumplimiento Bajo'
+    : ''
+
   return (
     <Layout>
       <div className="max-w-2xl mx-auto">
@@ -303,66 +413,152 @@ export default function AssessmentChat() {
           </div>
         )}
 
-        {loadingInit ? (
+        {!started ? (
+          /* ── Landing screen ──────────────────────────────────────────────── */
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 max-w-lg mx-auto">
+            <div className="w-14 h-14 rounded-full bg-blue-50 flex items-center justify-center mx-auto mb-5">
+              <svg className="w-7 h-7 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+              </svg>
+            </div>
+
+            <h2 className="text-xl font-bold text-gray-900 text-center mb-1">
+              Diagnostico de Cumplimiento
+            </h2>
+            <p className="text-sm text-gray-500 text-center mb-6">
+              Ley 1581 de 2012 — Proteccion de Datos Personales
+            </p>
+
+            <div className="grid grid-cols-3 gap-3 mb-6">
+              {[
+                { value: '9', label: 'Preguntas' },
+                { value: '~5', label: 'Minutos' },
+                { value: '3', label: 'Categorias' },
+              ].map((item) => (
+                <div key={item.label} className="bg-gray-50 rounded-lg p-3 text-center">
+                  <p className="text-xl font-bold text-blue-700">{item.value}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{item.label}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="space-y-2.5 mb-6">
+              {[
+                { color: 'bg-teal-500', label: 'Politica de tratamiento de datos' },
+                { color: 'bg-blue-500', label: 'Privacidad desde el diseno' },
+                { color: 'bg-purple-500', label: 'Gobernanza y responsabilidad' },
+              ].map((cat) => (
+                <div key={cat.label} className="flex items-center gap-2.5 text-sm text-gray-700">
+                  <span className={`w-2 h-2 rounded-full ${cat.color} shrink-0`} />
+                  {cat.label}
+                </div>
+              ))}
+            </div>
+
+            <p className="text-xs text-gray-400 text-center mb-6">
+              Al finalizar recibiras tu puntaje y recomendaciones personalizadas del agente IA.
+            </p>
+
+            <button
+              onClick={() => setStarted(true)}
+              className="w-full bg-blue-700 hover:bg-blue-800 text-white font-semibold py-3 rounded-lg transition-colors text-sm"
+            >
+              Comenzar Evaluacion
+            </button>
+          </div>
+
+        ) : loadingInit ? (
           <div className="flex flex-col items-center gap-3 py-20">
             <div className="w-8 h-8 border-4 border-blue-700 border-t-transparent rounded-full animate-spin" />
             <p className="text-sm text-gray-500">Preparando evaluacion...</p>
           </div>
         ) : result ? (
-          /* ── Results ────────────────────────────────────────────────────── */
-          <div className="space-y-6">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
-              <h2 className="text-lg font-semibold text-gray-800 mb-5">Resultado del diagnostico</h2>
-              <ScoreGauge score={result.score} size={200} />
-              {result.interpretation && (
-                <p className="mt-5 text-sm text-gray-600 max-w-md mx-auto">{result.interpretation}</p>
-              )}
-              <button
-                onClick={() => { void handleDownload() }}
-                disabled={downloading}
-                className="mt-6 bg-blue-700 hover:bg-blue-800 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition-colors disabled:opacity-50"
-              >
-                {downloading ? 'Generando PDF...' : 'Descargar Reporte PDF'}
-              </button>
+          /* ── Results + Chat ──────────────────────────────────────────────── */
+          <div className="space-y-5">
+
+            {/* Score card */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex items-center justify-between gap-6">
+              <div>
+                <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Porcentaje de cumplimiento</p>
+                <p className="text-4xl font-bold text-gray-900">{result.score}<span className="text-2xl text-gray-400">/100</span></p>
+                <p className={`text-sm font-semibold mt-1 ${scoreColor}`}>{scoreLabel}</p>
+                <p className="text-xs text-gray-400 mt-2">
+                  {result.gaps.length > 0
+                    ? `${result.gaps.length} brecha${result.gaps.length > 1 ? 's' : ''} identificada${result.gaps.length > 1 ? 's' : ''}`
+                    : 'Sin brechas detectadas'}
+                </p>
+              </div>
+              <div className="flex flex-col items-end gap-3 shrink-0">
+                <ScoreGauge score={result.score} size={110} />
+                <button
+                  onClick={() => { void handleDownload() }}
+                  disabled={downloading}
+                  className="text-xs text-blue-700 hover:text-blue-900 font-medium transition-colors disabled:opacity-50 flex items-center gap-1"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  {downloading ? 'Generando PDF...' : 'Descargar PDF'}
+                </button>
+              </div>
             </div>
 
-            {result.gaps && result.gaps.length > 0 && (
-              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-                <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">
-                  Brechas identificadas ({result.gaps.length})
-                </h3>
-                <ul className="space-y-4">
-                  {result.gaps.map((gap) => (
-                    <li key={gap.question_id} className="flex gap-3">
-                      <span className="mt-1.5 w-2 h-2 rounded-full bg-red-400 shrink-0" />
-                      <div>
-                        <p className="text-sm font-medium text-gray-800">{gap.question_text}</p>
-                        {gap.recommendation && (
-                          <p className="text-xs text-gray-500 mt-0.5">{gap.recommendation}</p>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+            {/* Chat card */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col" style={{ height: '480px' }}>
+              <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-green-500" />
+                <h2 className="text-sm font-semibold text-gray-800">Asistente IA — Ley 1581</h2>
+                <span className="ml-auto text-xs text-gray-400">Experto en proteccion de datos Colombia</span>
               </div>
-            )}
 
-            {result.recommendations && result.recommendations.length > 0 && (
-              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-                <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">
-                  Recomendaciones de IA
-                </h3>
-                <ul className="space-y-2">
-                  {result.recommendations.map((rec, i) => (
-                    <li key={i} className="flex gap-2 text-sm text-gray-700">
-                      <span className="text-teal-600 font-bold shrink-0">{i + 1}.</span>
-                      {rec}
-                    </li>
-                  ))}
-                </ul>
+              {/* Messages */}
+              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+                {chatMessages.length === 0 && chatLoading && <TypingIndicator />}
+
+                {chatMessages.map((msg, i) => (
+                  <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div
+                      className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
+                        msg.role === 'user'
+                          ? 'bg-blue-700 text-white rounded-tr-sm'
+                          : 'bg-gray-100 text-gray-800 rounded-tl-sm'
+                      }`}
+                    >
+                      {msg.content}
+                    </div>
+                  </div>
+                ))}
+
+                {chatMessages.length > 0 && chatLoading && <TypingIndicator />}
+                <div ref={chatEndRef} />
               </div>
-            )}
 
+              {/* Input */}
+              <div className="px-5 py-3.5 border-t border-gray-100">
+                <form onSubmit={(e) => { void handleSendMessage(e) }} className="flex gap-2">
+                  <input
+                    type="text"
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    placeholder="Pregunta al agente sobre Ley 1581..."
+                    disabled={chatLoading}
+                    className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent disabled:opacity-50"
+                  />
+                  <button
+                    type="submit"
+                    disabled={chatLoading || !chatInput.trim()}
+                    className="bg-blue-700 hover:bg-blue-800 text-white rounded-lg px-4 py-2 transition-colors disabled:opacity-50"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                    </svg>
+                  </button>
+                </form>
+              </div>
+            </div>
+
+            {/* Nav buttons */}
             <div className="flex gap-3">
               <button
                 onClick={() => navigate('/')}
@@ -378,6 +574,7 @@ export default function AssessmentChat() {
               </button>
             </div>
           </div>
+
         ) : completing ? (
           <div className="flex flex-col items-center gap-3 py-20">
             <div className="w-8 h-8 border-4 border-teal-600 border-t-transparent rounded-full animate-spin" />
@@ -390,17 +587,14 @@ export default function AssessmentChat() {
               <ProgressBar current={answeredCount + 1} total={QUESTIONS.length} />
 
               <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-4">
-                {/* Category badge */}
                 <span className="inline-block text-xs font-medium text-teal-700 bg-teal-50 px-2.5 py-0.5 rounded-full mb-4">
                   {question.category}
                 </span>
 
-                {/* Question text */}
                 <p className="text-base font-medium text-gray-900 mb-6 leading-snug">
                   {question.text}
                 </p>
 
-                {/* Answer buttons */}
                 <div className="flex gap-3">
                   {(['yes', 'partial', 'no'] as AnswerValue[]).map((val) => {
                     const labels: Record<AnswerValue, string> = {
@@ -427,7 +621,6 @@ export default function AssessmentChat() {
                 </div>
               </div>
 
-              {/* AI help buttons */}
               <div className="flex gap-3">
                 <button
                   onClick={() => { void openDrawer('explain') }}
@@ -455,7 +648,6 @@ export default function AssessmentChat() {
         )}
       </div>
 
-      {/* AI Drawer */}
       {drawerMode && (
         <AiDrawer
           title={drawerMode === 'explain' ? 'Explicacion de la pregunta' : 'Como responder esta pregunta'}

@@ -33,6 +33,7 @@ def create_company(
         created_by=current_user.id,
     )
     db.add(company)
+    db.flush()  # genera el UUID antes de asignarlo al usuario
 
     if not current_user.company_id:
         current_user.company_id = company.id

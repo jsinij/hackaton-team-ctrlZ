@@ -25,30 +25,39 @@ export interface Answer {
   value: AnswerValue
 }
 
-export interface Gap {
-  question_id: string
-  question_text: string
+export interface GapDetail {
+  id: string
+  text: string
+  reference: string
   category: string
-  recommendation: string
+  weight: number
 }
 
 export interface AssessmentResult {
+  id: string
+  company_id: string
+  status: string
   score: number
-  level: string
-  gaps: Gap[]
-  recommendations: string[]
-  interpretation: string
+  gaps: string[]
+  gap_details: GapDetail[]
+  completed_at: string
 }
 
 export interface Assessment {
   id: string
   company_id: string
-  company_name?: string
+  user_id?: string
   status: 'in_progress' | 'completed'
-  answers: Answer[]
-  result?: AssessmentResult
+  answers: Record<string, string>
+  score?: number
+  gaps?: string[]
   created_at: string
   completed_at?: string
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
 }
 
 // ─── Factory ─────────────────────────────────────────────────────────────────
@@ -129,12 +138,21 @@ export async function getAssessment(
   return data
 }
 
+const ANSWER_VALUE_MAP: Record<AnswerValue, string> = {
+  yes: 'si',
+  partial: 'parcial',
+  no: 'no',
+}
+
 export async function submitAnswers(
   client: AxiosInstance,
   id: string,
   answers: Answer[],
 ): Promise<Assessment> {
-  const { data } = await client.put<Assessment>(`/assessments/${id}/answers`, { answers })
+  const answersDict = Object.fromEntries(
+    answers.map(({ question_id, value }) => [question_id, ANSWER_VALUE_MAP[value]]),
+  )
+  const { data } = await client.put<Assessment>(`/assessments/${id}/answers`, { answers: answersDict })
   return data
 }
 
@@ -206,4 +224,25 @@ export async function downloadReport(
     responseType: 'blob',
   })
   return data
+}
+
+export async function deleteAssessment(
+  client: AxiosInstance,
+  id: string,
+): Promise<void> {
+  await client.delete(`/assessments/${id}`)
+}
+
+export async function chatWithAgent(
+  client: AxiosInstance,
+  assessmentId: string,
+  message: string,
+  history: ChatMessage[],
+): Promise<string> {
+  const { data } = await client.post<{ message: string }>('/ai/chat', {
+    assessment_id: assessmentId,
+    message,
+    history,
+  })
+  return data.message
 }

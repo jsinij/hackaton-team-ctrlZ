@@ -24,11 +24,15 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      HOME: /app/auth
     depends_on:
       db:
         condition: service_healthy
     ports:
       - "8000:8000"
+    volumes:
+      - azure_token_cache:/app/auth
 
   frontend:
     build:
@@ -44,3 +48,4 @@ services:
 
 volumes:
   postgres_data:
+  azure_token_cache:

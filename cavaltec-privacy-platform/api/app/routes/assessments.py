@@ -94,6 +94,23 @@ def submit_answers(
     return assessment
 
 
+@router.delete("/{assessment_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_assessment(
+    assessment_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    assessment = db.query(Assessment).filter(Assessment.id == assessment_id).first()
+    if not assessment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evaluación no encontrada")
+
+    company = db.query(Company).filter(Company.id == assessment.company_id).first()
+    _assert_company_access(company, current_user)
+
+    db.delete(assessment)
+    db.commit()
+
+
 @router.post("/{assessment_id}/complete", response_model=AssessmentResult)
 def complete_assessment(
     assessment_id: str,

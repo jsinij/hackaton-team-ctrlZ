@@ -6,7 +6,7 @@ from enum import Enum
 
 class CompanySize(str, Enum):
     micro = "micro"
-    pequena = "pequeña"
+    pequena = "pequena"
     mediana = "mediana"
     grande = "grande"
 

@@ -24,6 +24,7 @@ interface AuthContextValue {
   signInWithMicrosoft: () => Promise<void>
   signOut: () => Promise<void>
   getToken: () => Promise<string | null>
+  refreshProfile: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -89,9 +90,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUserProfile(null)
   }
 
+  const refreshProfile = async () => {
+    if (user) await syncProfile(user)
+  }
+
   return (
     <AuthContext.Provider
-      value={{ user, userProfile, loading, signInWithGoogle, signInWithMicrosoft, signOut, getToken }}
+      value={{ user, userProfile, loading, signInWithGoogle, signInWithMicrosoft, signOut, getToken, refreshProfile }}
     >
       {children}
     </AuthContext.Provider>

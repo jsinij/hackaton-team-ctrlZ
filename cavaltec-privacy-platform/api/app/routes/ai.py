@@ -19,6 +19,8 @@ from app.schemas.ai import (
     RecommendationsResponse,
     InterpretScoreRequest,
     InterpretScoreResponse,
+    ChatRequest,
+    ChatResponse,
 )
 
 router = APIRouter(prefix="/ai", tags=["ai"])
@@ -148,3 +150,35 @@ def interpret_score(
         company_name=company_name,
         interpretation=interpretation,
     )
+
+
+@router.post("/chat", response_model=ChatResponse)
+@limiter.limit("20/minute")
+def chat_with_agent(
+    request: Request,
+    body: ChatRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    assessment = _get_assessment_with_access(body.assessment_id, current_user, db)
+
+    if assessment.status != "completed":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La evaluación debe estar completada para usar el chat",
+        )
+
+    company = db.query(Company).filter(Company.id == assessment.company_id).first()
+    gap_details = get_gap_details(assessment.gaps or [])
+    history = [{"role": m.role, "content": m.content} for m in body.history]
+
+    response = ai_service.chat(
+        score=assessment.score or 0.0,
+        gap_details=gap_details,
+        company_name=company.name if company else "la empresa",
+        company_sector=company.sector if company else "desconocido",
+        message=body.message,
+        history=history,
+    )
+
+    return ChatResponse(message=response)
