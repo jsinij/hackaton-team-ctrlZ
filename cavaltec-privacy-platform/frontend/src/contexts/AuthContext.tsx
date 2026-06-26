@@ -8,10 +8,13 @@ import {
 import {
   onAuthStateChanged,
   signInWithPopup,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  updateProfile,
   signOut as firebaseSignOut,
   type User as FirebaseUser,
 } from 'firebase/auth'
-import { auth, googleProvider, microsoftProvider } from '../lib/firebase'
+import { auth, googleProvider } from '../lib/firebase'
 import { createApiClient, firebaseLogin, type User } from '../services/api'
 
 // ─── Shape ───────────────────────────────────────────────────────────────────
@@ -21,7 +24,8 @@ interface AuthContextValue {
   userProfile: User | null
   loading: boolean
   signInWithGoogle: () => Promise<void>
-  signInWithMicrosoft: () => Promise<void>
+  signInWithEmail: (email: string, password: string) => Promise<void>
+  signUpWithEmail: (email: string, password: string, name: string) => Promise<void>
   signOut: () => Promise<void>
   getToken: () => Promise<string | null>
   refreshProfile: () => Promise<void>
@@ -79,8 +83,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await syncProfile(result.user)
   }
 
-  const signInWithMicrosoft = async () => {
-    const result = await signInWithPopup(auth, microsoftProvider)
+  const signInWithEmail = async (email: string, password: string) => {
+    const result = await signInWithEmailAndPassword(auth, email, password)
+    await syncProfile(result.user)
+  }
+
+  const signUpWithEmail = async (email: string, password: string, name: string) => {
+    const result = await createUserWithEmailAndPassword(auth, email, password)
+    if (name.trim()) {
+      await updateProfile(result.user, { displayName: name.trim() })
+    }
     await syncProfile(result.user)
   }
 
@@ -96,7 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, userProfile, loading, signInWithGoogle, signInWithMicrosoft, signOut, getToken, refreshProfile }}
+      value={{ user, userProfile, loading, signInWithGoogle, signInWithEmail, signUpWithEmail, signOut, getToken, refreshProfile }}
     >
       {children}
     </AuthContext.Provider>

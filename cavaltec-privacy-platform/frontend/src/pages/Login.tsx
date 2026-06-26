@@ -25,22 +25,66 @@ function GoogleIcon() {
   )
 }
 
-function MicrosoftIcon() {
-  return (
-    <svg className="w-5 h-5" viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="1" y="1" width="10" height="10" fill="#F25022" />
-      <rect x="13" y="1" width="10" height="10" fill="#7FBA00" />
-      <rect x="1" y="13" width="10" height="10" fill="#00A4EF" />
-      <rect x="13" y="13" width="10" height="10" fill="#FFB900" />
-    </svg>
-  )
+const FIREBASE_ERRORS: Record<string, string> = {
+  'auth/invalid-credential': 'Correo o contraseña incorrectos.',
+  'auth/user-not-found': 'No existe una cuenta con ese correo.',
+  'auth/wrong-password': 'Contraseña incorrecta.',
+  'auth/email-already-in-use': 'Ya existe una cuenta con ese correo.',
+  'auth/weak-password': 'La contraseña debe tener al menos 6 caracteres.',
+  'auth/invalid-email': 'El correo electronico no es valido.',
+  'auth/too-many-requests': 'Demasiados intentos fallidos. Intenta mas tarde.',
+  'auth/popup-closed-by-user': 'Se cerro la ventana de autenticacion.',
+}
+
+function parseError(err: unknown): string {
+  if (err && typeof err === 'object' && 'code' in err) {
+    const code = (err as { code: string }).code
+    return FIREBASE_ERRORS[code] ?? 'Error al iniciar sesion. Intenta de nuevo.'
+  }
+  return 'Error al iniciar sesion. Intenta de nuevo.'
 }
 
 export default function Login() {
-  const { signInWithGoogle, signInWithMicrosoft, loading } = useAuth()
+  const { signInWithGoogle, signInWithEmail, signUpWithEmail, loading } = useAuth()
+  const navigate = useNavigate()
+
+  const [mode, setMode] = useState<'login' | 'register'>('login')
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [authLoading, setAuthLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const navigate = useNavigate()
+
+  const isLoading = loading || authLoading
+
+  const inputClass =
+    'w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent'
+
+  const handleEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
+
+    if (mode === 'register') {
+      if (!name.trim()) { setError('El nombre es obligatorio.'); return }
+      if (password !== confirmPassword) { setError('Las contraseñas no coinciden.'); return }
+      if (password.length < 6) { setError('La contraseña debe tener al menos 6 caracteres.'); return }
+    }
+
+    setAuthLoading(true)
+    try {
+      if (mode === 'login') {
+        await signInWithEmail(email, password)
+      } else {
+        await signUpWithEmail(email, password, name)
+      }
+      navigate('/')
+    } catch (err) {
+      setError(parseError(err))
+    } finally {
+      setAuthLoading(false)
+    }
+  }
 
   const handleGoogle = async () => {
     setError(null)
@@ -48,29 +92,19 @@ export default function Login() {
     try {
       await signInWithGoogle()
       navigate('/')
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Error al iniciar sesion con Google'
-      setError(msg)
+    } catch (err) {
+      setError(parseError(err))
     } finally {
       setAuthLoading(false)
     }
   }
 
-  const handleMicrosoft = async () => {
+  const switchMode = () => {
+    setMode((m) => m === 'login' ? 'register' : 'login')
     setError(null)
-    setAuthLoading(true)
-    try {
-      await signInWithMicrosoft()
-      navigate('/')
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Error al iniciar sesion con Microsoft'
-      setError(msg)
-    } finally {
-      setAuthLoading(false)
-    }
+    setPassword('')
+    setConfirmPassword('')
   }
-
-  const isLoading = loading || authLoading
 
   return (
     <div className="min-h-screen bg-gray-100 flex items-center justify-center px-4">
@@ -93,36 +127,110 @@ export default function Login() {
           </div>
         )}
 
-        <div className="flex flex-col gap-3">
+        {/* Mode toggle */}
+        <div className="flex bg-gray-100 rounded-lg p-1 mb-6">
           <button
-            onClick={handleGoogle}
-            disabled={isLoading}
-            className="flex items-center justify-center gap-3 w-full border border-gray-300 rounded-lg px-4 py-3 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            type="button"
+            onClick={() => { setMode('login'); setError(null) }}
+            className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${
+              mode === 'login' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            }`}
           >
-            {isLoading ? (
-              <div className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <GoogleIcon />
-            )}
-            Continuar con Google
+            Iniciar sesion
           </button>
-
           <button
-            onClick={handleMicrosoft}
-            disabled={isLoading}
-            className="flex items-center justify-center gap-3 w-full border border-gray-300 rounded-lg px-4 py-3 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            type="button"
+            onClick={() => { setMode('register'); setError(null) }}
+            className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${
+              mode === 'register' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            }`}
           >
-            {isLoading ? (
-              <div className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <MicrosoftIcon />
-            )}
-            Continuar con Microsoft
+            Crear cuenta
           </button>
         </div>
 
+        {/* Email / password form */}
+        <form onSubmit={(e) => { void handleEmailSubmit(e) }} className="flex flex-col gap-3">
+          {mode === 'register' && (
+            <input
+              type="text"
+              placeholder="Nombre completo"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              disabled={isLoading}
+              className={inputClass}
+              required
+            />
+          )}
+          <input
+            type="email"
+            placeholder="Correo electronico"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            disabled={isLoading}
+            className={inputClass}
+            required
+          />
+          <input
+            type="password"
+            placeholder="Contraseña"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            disabled={isLoading}
+            className={inputClass}
+            required
+          />
+          {mode === 'register' && (
+            <input
+              type="password"
+              placeholder="Confirmar contraseña"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              disabled={isLoading}
+              className={inputClass}
+              required
+            />
+          )}
+          <button
+            type="submit"
+            disabled={isLoading}
+            className="w-full bg-blue-700 hover:bg-blue-800 text-white font-medium py-2.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm flex items-center justify-center gap-2"
+          >
+            {isLoading && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+            {mode === 'login' ? 'Iniciar sesion' : 'Crear cuenta'}
+          </button>
+        </form>
+
+        {/* Divider */}
+        <div className="flex items-center gap-3 my-5">
+          <div className="flex-1 h-px bg-gray-200" />
+          <span className="text-xs text-gray-400">o</span>
+          <div className="flex-1 h-px bg-gray-200" />
+        </div>
+
+        {/* Google */}
+        <button
+          onClick={() => { void handleGoogle() }}
+          disabled={isLoading}
+          className="flex items-center justify-center gap-3 w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isLoading ? (
+            <div className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <GoogleIcon />
+          )}
+          Continuar con Google
+        </button>
+
         <p className="mt-6 text-center text-xs text-gray-400">
           Al continuar aceptas los terminos de uso y la politica de privacidad.
+        </p>
+
+        <p className="mt-2 text-center text-xs text-gray-500">
+          {mode === 'login' ? '¿No tienes cuenta?' : '¿Ya tienes cuenta?'}{' '}
+          <button onClick={switchMode} className="text-blue-700 font-medium hover:underline">
+            {mode === 'login' ? 'Crear cuenta' : 'Iniciar sesion'}
+          </button>
         </p>
       </div>
     </div>
