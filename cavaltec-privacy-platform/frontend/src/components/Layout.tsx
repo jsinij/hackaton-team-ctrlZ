@@ -10,7 +10,7 @@ const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: HomeIcon },
   { to: '/diagnostico', label: 'Nueva Evaluacion', icon: ClipboardIcon },
   { to: '/historial', label: 'Historial', icon: HistoryIcon },
-  { to: '/empresa', label: 'Mi Empresa', icon: BuildingIcon },
+  { to: '/empresa', label: 'Mis Empresas', icon: BuildingIcon },
 ]
 
 function HomeIcon() {

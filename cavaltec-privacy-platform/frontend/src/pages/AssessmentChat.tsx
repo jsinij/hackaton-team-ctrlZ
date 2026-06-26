@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { useAuth } from '../hooks/useAuth'
 import { useApi } from '../hooks/useApi'
 import {
   createAssessment,
   getAssessment,
+  getCompanies,
   submitAnswers,
   completeAssessment,
-  explainQuestion,
-  getAnswerGuidance,
   downloadReport,
   chatWithAgent,
+  questionChat,
+  type Company,
   type Assessment,
   type AssessmentResult,
   type Answer,
@@ -23,50 +23,79 @@ import ScoreGauge from '../components/ScoreGauge'
 // ─── Static question bank ─────────────────────────────────────────────────────
 
 export const QUESTIONS = [
+  // ── Política de datos personales — máx. 40% ──────────────────────────────
   {
     id: 'P1',
-    text: 'Tiene la empresa una politica de tratamiento de datos personales documentada y aprobada?',
-    category: 'Politica de datos',
+    text: '¿Cuenta con una política de tratamiento de datos personales?',
+    category: 'Política de datos personales',
+    weight: 0,
+    isGate: true,
+    gateChildren: ['P2', 'P3', 'P4', 'P5'] as string[],
+    note: 'Si responde No, las siguientes 4 preguntas se omitirán automáticamente.',
   },
   {
     id: 'P2',
-    text: 'La politica de tratamiento de datos esta publicada y es accesible para los titulares?',
-    category: 'Politica de datos',
+    text: '¿La política está documentada y publicada en medio de fácil acceso?',
+    category: 'Política de datos personales',
+    weight: 10,
   },
   {
     id: 'P3',
-    text: 'Se ha registrado la base de datos ante la SIC?',
-    category: 'Politica de datos',
+    text: '¿La política define las finalidades del tratamiento de datos?',
+    category: 'Política de datos personales',
+    weight: 10,
   },
   {
     id: 'P4',
-    text: 'Los sistemas de informacion incorporan controles de privacidad desde su diseno?',
-    category: 'Privacidad por diseno',
+    text: '¿La política incluye los derechos de los titulares?',
+    category: 'Política de datos personales',
+    weight: 10,
   },
   {
     id: 'P5',
-    text: 'Se realiza analisis de impacto de privacidad (DPIA) antes de implementar nuevos procesos?',
-    category: 'Privacidad por diseno',
+    text: '¿La política menciona cómo ejercer los derechos de los titulares?',
+    category: 'Política de datos personales',
+    weight: 10,
   },
+  // ── Privacidad desde el diseño — máx. 36% ────────────────────────────────
   {
     id: 'P6',
-    text: 'Existen mecanismos tecnicos para garantizar la seguridad de los datos personales?',
-    category: 'Privacidad por diseno',
+    text: '¿Incorpora evaluaciones de impacto (Privacy Impact Assessments)?',
+    category: 'Privacidad desde el diseño',
+    weight: 12,
   },
   {
     id: 'P7',
-    text: 'Existe un responsable designado del tratamiento de datos personales?',
-    category: 'Gobernanza',
+    text: '¿Aplica técnicas de minimización de datos?',
+    category: 'Privacidad desde el diseño',
+    weight: 12,
   },
   {
     id: 'P8',
-    text: 'El personal que trata datos personales ha recibido capacitacion sobre la Ley 1581?',
-    category: 'Gobernanza',
+    text: '¿Configura sus sistemas para recopilar el mínimo de datos por defecto?',
+    category: 'Privacidad desde el diseño',
+    weight: 12,
   },
+  // ── Gobernanza — máx. 24% ─────────────────────────────────────────────────
   {
     id: 'P9',
-    text: 'Existe un procedimiento para atender solicitudes de los titulares (acceso, correccion, supresion)?',
+    text: '¿Cuenta con un sistema de administración de riesgos?',
     category: 'Gobernanza',
+    weight: 16,
+  },
+  {
+    id: 'P10',
+    text: '¿Cuenta con un oficial de protección de datos personales?',
+    category: 'Gobernanza',
+    weight: 8,
+  },
+  {
+    id: 'P11',
+    text: '¿El oficial de protección de datos está designado formalmente?',
+    category: 'Gobernanza',
+    weight: 0,
+    complementary: true,
+    note: 'Pregunta complementaria — no afecta el puntaje.',
   },
 ]
 
@@ -90,35 +119,84 @@ function ProgressBar({ current, total }: { current: number; total: number }) {
   )
 }
 
-interface AiDrawerProps {
+interface QuestionChatDrawerProps {
   title: string
-  content: string
+  messages: ChatMessage[]
   loading: boolean
+  input: string
+  onInputChange: (v: string) => void
+  onSend: (e: React.FormEvent) => void
   onClose: () => void
 }
 
-function AiDrawer({ title, content, loading, onClose }: AiDrawerProps) {
+function QuestionChatDrawer({
+  title, messages, loading, input, onInputChange, onSend, onClose,
+}: QuestionChatDrawerProps) {
+  const bottomRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, loading])
+
   return (
     <div className="fixed inset-0 z-40 flex justify-end">
       <div className="fixed inset-0 bg-black/20" onClick={onClose} />
       <aside className="relative z-50 w-full max-w-sm bg-white shadow-xl flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h3 className="text-sm font-semibold text-gray-800">{title}</h3>
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-full bg-blue-700 flex items-center justify-center shrink-0">
+              <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+              </svg>
+            </div>
+            <h3 className="text-sm font-semibold text-gray-800">{title}</h3>
+          </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
-        <div className="flex-1 overflow-auto px-5 py-4 text-sm text-gray-700 leading-relaxed">
-          {loading ? (
-            <div className="flex justify-center pt-10">
-              <div className="w-6 h-6 border-2 border-blue-700 border-t-transparent rounded-full animate-spin" />
+
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+          {messages.map((msg, i) => (
+            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
+                msg.role === 'user'
+                  ? 'bg-blue-700 text-white rounded-tr-sm'
+                  : 'bg-gray-100 text-gray-800 rounded-tl-sm'
+              }`}>
+                {msg.content}
+              </div>
             </div>
-          ) : (
-            <p>{content}</p>
-          )}
+          ))}
+          {loading && <TypingIndicator />}
+          <div ref={bottomRef} />
         </div>
+
+        {/* Input */}
+        <form onSubmit={onSend} className="px-4 py-3 border-t border-gray-100 flex gap-2 shrink-0">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => onInputChange(e.target.value)}
+            placeholder="Pregunta al agente..."
+            disabled={loading}
+            className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent disabled:opacity-50"
+          />
+          <button
+            type="submit"
+            disabled={loading || !input.trim()}
+            className="bg-blue-700 hover:bg-blue-800 text-white rounded-lg px-3 py-2 transition-colors disabled:opacity-50"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+            </svg>
+          </button>
+        </form>
       </aside>
     </div>
   )
@@ -140,10 +218,9 @@ function TypingIndicator() {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-type DrawerMode = 'explain' | 'guidance' | null
+type QuestionChatMode = 'explain' | 'guidance'
 
 export default function AssessmentChat() {
-  const { userProfile } = useAuth()
   const getClient = useApi()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -152,6 +229,13 @@ export default function AssessmentChat() {
 
   // Show landing screen for new assessments; skip it when resuming via URL param
   const [started, setStarted] = useState(!!assessmentIdParam)
+
+  // Company selector on landing page
+  const [companies, setCompanies] = useState<Company[]>([])
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>('')
+  const [companiesLoading, setCompaniesLoading] = useState(false)
+  // Ref holds the company ID at the moment "Comenzar" is clicked, safe for the init effect
+  const companyIdRef = useRef<string>('')
 
   const [assessment, setAssessment] = useState<Assessment | null>(null)
   const [result, setResult] = useState<AssessmentResult | null>(null)
@@ -169,10 +253,38 @@ export default function AssessmentChat() {
   const [chatLoading, setChatLoading] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
 
-  // AI Drawer
-  const [drawerMode, setDrawerMode] = useState<DrawerMode>(null)
-  const [drawerContent, setDrawerContent] = useState('')
-  const [drawerLoading, setDrawerLoading] = useState(false)
+  // Question chat drawer
+  const [qChatMode, setQChatMode] = useState<QuestionChatMode | null>(null)
+  const [qChatMessages, setQChatMessages] = useState<ChatMessage[]>([])
+  const [qChatInput, setQChatInput] = useState('')
+  const [qChatLoading, setQChatLoading] = useState(false)
+
+  // ── Load companies for landing selector ──────────────────────────────────
+
+  useEffect(() => {
+    if (assessmentIdParam) return  // resuming, no need for selector
+    let cancelled = false
+    const load = async () => {
+      setCompaniesLoading(true)
+      try {
+        const client = await getClient()
+        const list = await getCompanies(client)
+        if (!cancelled) {
+          setCompanies(list)
+          if (list.length > 0) {
+            setSelectedCompanyId(list[0].id)
+          }
+        }
+      } catch {
+        // silently ignore — user will see the empty selector
+      } finally {
+        if (!cancelled) setCompaniesLoading(false)
+      }
+    }
+    void load()
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [getClient])
 
   // ── Scroll chat to bottom on new messages ─────────────────────────────────
 
@@ -228,7 +340,7 @@ export default function AssessmentChat() {
         if (assessmentIdParam) {
           a = await getAssessment(client, assessmentIdParam)
         } else {
-          const companyId = userProfile?.company_id
+          const companyId = companyIdRef.current
           if (!companyId) {
             navigate('/empresa')
             return
@@ -263,7 +375,12 @@ export default function AssessmentChat() {
               restored[qid] = backendToFrontend[val] ?? (val as AnswerValue)
             })
             setAnswers(restored)
-            const firstUnanswered = QUESTIONS.findIndex((q) => !restored[q.id])
+            // If P1 was answered "no", the gate children were auto-skipped
+            const p1WasNo = restored['P1'] === 'no'
+            const firstUnanswered = QUESTIONS.findIndex((q) => {
+              if (p1WasNo && ['P2', 'P3', 'P4', 'P5'].includes(q.id)) return false
+              return !restored[q.id]
+            })
             setCurrentIndex(firstUnanswered === -1 ? QUESTIONS.length - 1 : firstUnanswered)
           }
         }
@@ -285,7 +402,13 @@ export default function AssessmentChat() {
     const question = QUESTIONS[currentIndex]
     if (!question || !assessment) return
 
-    const newAnswers = { ...answers, [question.id]: value }
+    // Gate logic: P1 = "no" auto-answers its children as "no"
+    let newAnswers = { ...answers, [question.id]: value }
+    if (question.isGate && value === 'no' && question.gateChildren) {
+      question.gateChildren.forEach((childId) => {
+        newAnswers[childId] = 'no'
+      })
+    }
     setAnswers(newAnswers)
 
     setSubmitting(true)
@@ -297,14 +420,23 @@ export default function AssessmentChat() {
       }))
       await submitAnswers(client, assessment.id, answersArr)
 
-      const isLast = currentIndex === QUESTIONS.length - 1
+      // Determine next index, skipping gate children if P1 = "no"
+      let nextIndex = currentIndex + 1
+      if (question.isGate && value === 'no' && question.gateChildren) {
+        const firstAfterGate = QUESTIONS.findIndex(
+          (q) => !question.gateChildren!.includes(q.id) && QUESTIONS.indexOf(q) > currentIndex
+        )
+        if (firstAfterGate !== -1) nextIndex = firstAfterGate
+      }
+
+      const isLast = nextIndex >= QUESTIONS.length
       if (isLast) {
         setCompleting(true)
         const res = await completeAssessment(client, assessment.id)
         setResult(res)
         setCompleting(false)
       } else {
-        setCurrentIndex((i) => i + 1)
+        setCurrentIndex(nextIndex)
       }
     } catch {
       setError('Error al guardar la respuesta. Intenta de nuevo.')
@@ -341,29 +473,54 @@ export default function AssessmentChat() {
     }
   }
 
-  // ── AI Drawer helpers ──────────────────────────────────────────────────────
+  // ── Question chat drawer ──────────────────────────────────────────────────
 
-  const openDrawer = useCallback(async (mode: DrawerMode) => {
+  const openQuestionChat = useCallback(async (mode: QuestionChatMode) => {
     const question = QUESTIONS[currentIndex]
-    if (!question || !assessment) return
-    setDrawerMode(mode)
-    setDrawerLoading(true)
-    setDrawerContent('')
+    if (!question) return
+
+    const initialPrompt = mode === 'explain'
+      ? `¿Qué significa esta pregunta y por qué es importante para el cumplimiento de la Ley 1581?`
+      : `¿Cómo debo responder esta pregunta? ¿Qué evidencias o documentos necesito para responder "Sí"?`
+
+    setQChatMode(mode)
+    setQChatMessages([])
+    setQChatInput('')
+    setQChatLoading(true)
+
     try {
       const client = await getClient()
-      if (mode === 'explain') {
-        const { explanation } = await explainQuestion(client, question.id)
-        setDrawerContent(explanation)
-      } else if (mode === 'guidance') {
-        const { guidance } = await getAnswerGuidance(client, question.id)
-        setDrawerContent(guidance)
-      }
+      const response = await questionChat(client, question.id, mode, initialPrompt, [])
+      setQChatMessages([{ role: 'assistant', content: response }])
     } catch {
-      setDrawerContent('No se pudo obtener la informacion de la IA.')
+      setQChatMessages([{ role: 'assistant', content: 'No se pudo obtener la información del agente. Intenta de nuevo.' }])
     } finally {
-      setDrawerLoading(false)
+      setQChatLoading(false)
     }
-  }, [currentIndex, assessment, getClient])
+  }, [currentIndex, getClient])
+
+  const handleQuestionChatSend = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const question = QUESTIONS[currentIndex]
+    if (!qChatInput.trim() || !question || qChatLoading) return
+
+    const userMsg = qChatInput.trim()
+    setQChatInput('')
+    const history = [...qChatMessages]
+    const newMessages: ChatMessage[] = [...history, { role: 'user', content: userMsg }]
+    setQChatMessages(newMessages)
+    setQChatLoading(true)
+
+    try {
+      const client = await getClient()
+      const response = await questionChat(client, question.id, 'followup', userMsg, history)
+      setQChatMessages([...newMessages, { role: 'assistant', content: response }])
+    } catch {
+      setQChatMessages([...newMessages, { role: 'assistant', content: 'No se pudo procesar tu consulta. Intenta de nuevo.' }])
+    } finally {
+      setQChatLoading(false)
+    }
+  }
 
   // ── Download ───────────────────────────────────────────────────────────────
 
@@ -432,9 +589,9 @@ export default function AssessmentChat() {
 
             <div className="grid grid-cols-3 gap-3 mb-6">
               {[
-                { value: '9', label: 'Preguntas' },
-                { value: '~5', label: 'Minutos' },
-                { value: '3', label: 'Categorias' },
+                { value: `${QUESTIONS.length}`, label: 'Preguntas' },
+                { value: '~7', label: 'Minutos' },
+                { value: '3', label: 'Categorías' },
               ].map((item) => (
                 <div key={item.label} className="bg-gray-50 rounded-lg p-3 text-center">
                   <p className="text-xl font-bold text-blue-700">{item.value}</p>
@@ -460,12 +617,52 @@ export default function AssessmentChat() {
               Al finalizar recibiras tu puntaje y recomendaciones personalizadas del agente IA.
             </p>
 
+            {/* Company selector */}
+            {companiesLoading ? (
+              <div className="flex justify-center mb-4">
+                <div className="w-5 h-5 border-2 border-blue-700 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : companies.length === 0 ? (
+              <div className="mb-4 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-700 text-center">
+                Primero debes registrar una empresa antes de iniciar la evaluacion.
+              </div>
+            ) : (
+              <div className="mb-4">
+                <label htmlFor="landing-company" className="block text-xs font-medium text-gray-600 mb-1.5">
+                  Empresa a evaluar
+                </label>
+                <select
+                  id="landing-company"
+                  value={selectedCompanyId}
+                  onChange={(e) => setSelectedCompanyId(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent bg-white"
+                >
+                  {companies.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <button
-              onClick={() => setStarted(true)}
-              className="w-full bg-blue-700 hover:bg-blue-800 text-white font-semibold py-3 rounded-lg transition-colors text-sm"
+              onClick={() => {
+                companyIdRef.current = selectedCompanyId
+                setStarted(true)
+              }}
+              disabled={companies.length === 0 || companiesLoading}
+              className="w-full bg-blue-700 hover:bg-blue-800 text-white font-semibold py-3 rounded-lg transition-colors text-sm disabled:opacity-50"
             >
               Comenzar Evaluacion
             </button>
+
+            {companies.length === 0 && !companiesLoading && (
+              <button
+                onClick={() => navigate('/empresa')}
+                className="mt-2 w-full border border-blue-700 text-blue-700 font-semibold py-3 rounded-lg transition-colors text-sm hover:bg-blue-50"
+              >
+                Registrar empresa
+              </button>
+            )}
           </div>
 
         ) : loadingInit ? (
@@ -586,19 +783,35 @@ export default function AssessmentChat() {
             <>
               <ProgressBar current={answeredCount + 1} total={QUESTIONS.length} />
 
-              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-4">
-                <span className="inline-block text-xs font-medium text-teal-700 bg-teal-50 px-2.5 py-0.5 rounded-full mb-4">
-                  {question.category}
-                </span>
+              <div className={`bg-white rounded-xl shadow-sm border p-6 mb-4 ${question.complementary ? 'border-amber-200' : 'border-gray-100'}`}>
+                <div className="flex items-center gap-2 mb-4 flex-wrap">
+                  <span className="inline-block text-xs font-medium text-teal-700 bg-teal-50 px-2.5 py-0.5 rounded-full">
+                    {question.category}
+                  </span>
+                  {question.weight > 0 && (
+                    <span className="inline-block text-xs font-medium text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-full">
+                      {question.weight}% del puntaje
+                    </span>
+                  )}
+                  {question.complementary && (
+                    <span className="inline-block text-xs font-medium text-amber-700 bg-amber-50 px-2.5 py-0.5 rounded-full">
+                      Complementaria · no afecta puntaje
+                    </span>
+                  )}
+                </div>
 
-                <p className="text-base font-medium text-gray-900 mb-6 leading-snug">
+                <p className="text-base font-medium text-gray-900 mb-3 leading-snug">
                   {question.text}
                 </p>
+
+                {question.note && (
+                  <p className="text-xs text-gray-500 mb-5 italic">{question.note}</p>
+                )}
 
                 <div className="flex gap-3">
                   {(['yes', 'partial', 'no'] as AnswerValue[]).map((val) => {
                     const labels: Record<AnswerValue, string> = {
-                      yes: 'Si',
+                      yes: 'Sí',
                       partial: 'Parcialmente',
                       no: 'No',
                     }
@@ -623,7 +836,7 @@ export default function AssessmentChat() {
 
               <div className="flex gap-3">
                 <button
-                  onClick={() => { void openDrawer('explain') }}
+                  onClick={() => { void openQuestionChat('explain') }}
                   className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-blue-700 transition-colors"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -633,7 +846,7 @@ export default function AssessmentChat() {
                   Explicar esta pregunta
                 </button>
                 <button
-                  onClick={() => { void openDrawer('guidance') }}
+                  onClick={() => { void openQuestionChat('guidance') }}
                   className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-blue-700 transition-colors"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -648,12 +861,15 @@ export default function AssessmentChat() {
         )}
       </div>
 
-      {drawerMode && (
-        <AiDrawer
-          title={drawerMode === 'explain' ? 'Explicacion de la pregunta' : 'Como responder esta pregunta'}
-          content={drawerContent}
-          loading={drawerLoading}
-          onClose={() => setDrawerMode(null)}
+      {qChatMode && (
+        <QuestionChatDrawer
+          title={qChatMode === 'explain' ? 'Explicación de la pregunta' : '¿Cómo responder esta pregunta?'}
+          messages={qChatMessages}
+          loading={qChatLoading}
+          input={qChatInput}
+          onInputChange={setQChatInput}
+          onSend={(e) => { void handleQuestionChatSend(e) }}
+          onClose={() => setQChatMode(null)}
         />
       )}
     </Layout>

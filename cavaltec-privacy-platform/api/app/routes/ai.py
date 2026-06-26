@@ -21,6 +21,8 @@ from app.schemas.ai import (
     InterpretScoreResponse,
     ChatRequest,
     ChatResponse,
+    QuestionChatRequest,
+    QuestionChatResponse,
 )
 
 router = APIRouter(prefix="/ai", tags=["ai"])
@@ -182,3 +184,30 @@ def chat_with_agent(
     )
 
     return ChatResponse(message=response)
+
+
+@router.post("/question-chat", response_model=QuestionChatResponse)
+@limiter.limit("20/minute")
+def question_chat(
+    request: Request,
+    body: QuestionChatRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    question = QUESTIONS_BY_ID.get(body.question_id)
+    if not question:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Pregunta '{body.question_id}' no encontrada",
+        )
+
+    history = [{"role": m.role, "content": m.content} for m in body.history]
+    response = ai_service.chat_question(
+        question_text=question["text"],
+        reference=question["reference"],
+        category=question["category"],
+        mode=body.mode,
+        message=body.message,
+        history=history,
+    )
+    return QuestionChatResponse(message=response)

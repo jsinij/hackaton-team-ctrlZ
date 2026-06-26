@@ -58,3 +58,14 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     message: str
+
+
+class QuestionChatRequest(BaseModel):
+    question_id: str
+    mode: str  # "explain" | "guidance" | "followup"
+    message: str
+    history: list[ChatMessage] = []
+
+
+class QuestionChatResponse(BaseModel):
+    message: str

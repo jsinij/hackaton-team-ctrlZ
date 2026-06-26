@@ -246,3 +246,19 @@ export async function chatWithAgent(
   })
   return data.message
 }
+
+export async function questionChat(
+  client: AxiosInstance,
+  questionId: string,
+  mode: 'explain' | 'guidance' | 'followup',
+  message: string,
+  history: ChatMessage[],
+): Promise<string> {
+  const { data } = await client.post<{ message: string }>('/ai/question-chat', {
+    question_id: questionId,
+    mode,
+    message,
+    history,
+  })
+  return data.message
+}

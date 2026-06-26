@@ -4,6 +4,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useApi } from '../hooks/useApi'
 import {
   getCompany,
+  getCompanies,
   getCompanyAssessments,
   createAssessment,
   type Company,
@@ -29,16 +30,45 @@ export default function Dashboard() {
   const getClient = useApi()
   const navigate = useNavigate()
 
+  const [companies, setCompanies] = useState<Company[]>([])
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>('')
   const [company, setCompany] = useState<Company | null>(null)
   const [assessments, setAssessments] = useState<Assessment[]>([])
-  const [loadingData, setLoadingData] = useState(true)
+  const [loadingCompanies, setLoadingCompanies] = useState(true)
+  const [loadingData, setLoadingData] = useState(false)
   const [startingNew, setStartingNew] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const displayName = userProfile?.name ?? user?.displayName ?? 'usuario'
   const firstName = displayName.split(' ')[0]
 
+  // Load company list once on mount
   useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      setLoadingCompanies(true)
+      try {
+        const client = await getClient()
+        const list = await getCompanies(client)
+        if (!cancelled) {
+          setCompanies(list)
+          const defaultId = userProfile?.company_id ?? list[0]?.id ?? ''
+          setSelectedCompanyId(defaultId)
+        }
+      } catch {
+        if (!cancelled) setError('No se pudo cargar la informacion.')
+      } finally {
+        if (!cancelled) setLoadingCompanies(false)
+      }
+    }
+    void load()
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [getClient])
+
+  // Load assessments whenever selected company changes
+  useEffect(() => {
+    if (!selectedCompanyId) return
     let cancelled = false
 
     const load = async () => {
@@ -46,14 +76,9 @@ export default function Dashboard() {
       setError(null)
       try {
         const client = await getClient()
-        const companyId = userProfile?.company_id
-        if (!companyId) {
-          setLoadingData(false)
-          return
-        }
         const [co, list] = await Promise.all([
-          getCompany(client, companyId),
-          getCompanyAssessments(client, companyId),
+          getCompany(client, selectedCompanyId),
+          getCompanyAssessments(client, selectedCompanyId),
         ])
         if (!cancelled) {
           setCompany(co)
@@ -68,7 +93,7 @@ export default function Dashboard() {
 
     void load()
     return () => { cancelled = true }
-  }, [getClient, userProfile?.company_id])
+  }, [getClient, selectedCompanyId])
 
   const handleNewAssessment = async () => {
     if (!company) return
@@ -84,7 +109,6 @@ export default function Dashboard() {
   }
 
   const latestCompleted = assessments.find((a) => a.status === 'completed')
-
   const gapCount = latestCompleted?.gaps?.length ?? 0
 
   return (
@@ -102,12 +126,12 @@ export default function Dashboard() {
         </div>
       )}
 
-      {loadingData ? (
+      {loadingCompanies ? (
         <div className="flex justify-center py-20">
           <div className="w-8 h-8 border-4 border-blue-700 border-t-transparent rounded-full animate-spin" />
         </div>
-      ) : !company ? (
-        /* No company yet */
+      ) : companies.length === 0 ? (
+        /* No companies yet */
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center max-w-md mx-auto mt-12">
           <div className="w-14 h-14 rounded-full bg-blue-50 flex items-center justify-center mx-auto mb-4">
             <svg className="w-7 h-7 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -128,75 +152,102 @@ export default function Dashboard() {
         </div>
       ) : (
         <>
-          {/* Stats row */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-8">
-            <StatCard label="Empresa" value={company.name} />
-            <StatCard label="Evaluaciones" value={assessments.length} />
-            <StatCard
-              label="Ultimo puntaje"
-              value={latestCompleted ? `${latestCompleted.score ?? 0}%` : 'Sin datos'}
-              color={latestCompleted ? 'text-teal-700' : 'text-gray-400'}
-            />
-          </div>
+          {/* Company selector */}
+          {companies.length > 1 && (
+            <div className="flex items-center gap-3 mb-6">
+              <label htmlFor="company-select" className="text-sm font-medium text-gray-700 shrink-0">
+                Empresa:
+              </label>
+              <select
+                id="company-select"
+                value={selectedCompanyId}
+                onChange={(e) => setSelectedCompanyId(e.target.value)}
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent bg-white"
+              >
+                {companies.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
-          {latestCompleted ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Score card */}
-              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-                <h2 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">
-                  Ultimo diagnostico
-                </h2>
-                <div className="flex flex-col items-center">
-                  <ScoreGauge score={latestCompleted.score ?? 0} />
-                  <p className="text-xs text-gray-400 mt-3">
-                    {new Date(latestCompleted.completed_at ?? latestCompleted.created_at).toLocaleDateString('es-CO')}
-                  </p>
-                </div>
-                <button
-                  onClick={handleNewAssessment}
-                  disabled={startingNew}
-                  className="mt-5 w-full bg-blue-700 hover:bg-blue-800 text-white text-sm font-medium py-2.5 rounded-lg transition-colors disabled:opacity-50"
-                >
-                  {startingNew ? 'Iniciando...' : 'Nueva Evaluacion'}
-                </button>
-              </div>
-
-              {/* Gaps card */}
-              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-                <h2 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">
-                  Brechas identificadas ({gapCount})
-                </h2>
-                {latestCompleted.gaps && latestCompleted.gaps.length > 0 ? (
-                  <ul className="space-y-3">
-                    {latestCompleted.gaps.slice(0, 5).map((gapId) => (
-                      <li key={gapId} className="flex gap-2 text-sm">
-                        <span className="mt-0.5 w-2 h-2 rounded-full bg-red-400 shrink-0" />
-                        <span className="text-gray-700">{QUESTION_TEXT[gapId] ?? gapId}</span>
-                      </li>
-                    ))}
-                    {gapCount > 5 && (
-                      <p className="text-xs text-gray-400">
-                        y {gapCount - 5} mas...
-                      </p>
-                    )}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-teal-600 font-medium">Sin brechas detectadas</p>
-                )}
-              </div>
+          {loadingData ? (
+            <div className="flex justify-center py-20">
+              <div className="w-8 h-8 border-4 border-blue-700 border-t-transparent rounded-full animate-spin" />
             </div>
           ) : (
-            /* No assessments yet */
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
-              <p className="text-gray-500 mb-5">Aun no tienes diagnosticos completados.</p>
-              <button
-                onClick={handleNewAssessment}
-                disabled={startingNew}
-                className="bg-blue-700 hover:bg-blue-800 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition-colors disabled:opacity-50"
-              >
-                {startingNew ? 'Iniciando...' : 'Iniciar primer diagnostico'}
-              </button>
-            </div>
+            <>
+              {/* Stats row */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-8">
+                <StatCard label="Empresa" value={company?.name ?? '—'} />
+                <StatCard label="Evaluaciones" value={assessments.length} />
+                <StatCard
+                  label="Ultimo puntaje"
+                  value={latestCompleted ? `${latestCompleted.score ?? 0}%` : 'Sin datos'}
+                  color={latestCompleted ? 'text-teal-700' : 'text-gray-400'}
+                />
+              </div>
+
+              {latestCompleted ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Score card */}
+                  <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+                    <h2 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">
+                      Ultimo diagnostico
+                    </h2>
+                    <div className="flex flex-col items-center">
+                      <ScoreGauge score={latestCompleted.score ?? 0} />
+                      <p className="text-xs text-gray-400 mt-3">
+                        {new Date(latestCompleted.completed_at ?? latestCompleted.created_at).toLocaleDateString('es-CO')}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => { void handleNewAssessment() }}
+                      disabled={startingNew}
+                      className="mt-5 w-full bg-blue-700 hover:bg-blue-800 text-white text-sm font-medium py-2.5 rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      {startingNew ? 'Iniciando...' : 'Nueva Evaluacion'}
+                    </button>
+                  </div>
+
+                  {/* Gaps card */}
+                  <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+                    <h2 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">
+                      Brechas identificadas ({gapCount})
+                    </h2>
+                    {latestCompleted.gaps && latestCompleted.gaps.length > 0 ? (
+                      <ul className="space-y-3">
+                        {latestCompleted.gaps.slice(0, 5).map((gapId) => (
+                          <li key={gapId} className="flex gap-2 text-sm">
+                            <span className="mt-0.5 w-2 h-2 rounded-full bg-red-400 shrink-0" />
+                            <span className="text-gray-700">{QUESTION_TEXT[gapId] ?? gapId}</span>
+                          </li>
+                        ))}
+                        {gapCount > 5 && (
+                          <p className="text-xs text-gray-400">
+                            y {gapCount - 5} mas...
+                          </p>
+                        )}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-teal-600 font-medium">Sin brechas detectadas</p>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                /* No assessments yet */
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
+                  <p className="text-gray-500 mb-5">Aun no tienes diagnosticos completados.</p>
+                  <button
+                    onClick={() => { void handleNewAssessment() }}
+                    disabled={startingNew}
+                    className="bg-blue-700 hover:bg-blue-800 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    {startingNew ? 'Iniciando...' : 'Iniciar primer diagnostico'}
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </>
       )}

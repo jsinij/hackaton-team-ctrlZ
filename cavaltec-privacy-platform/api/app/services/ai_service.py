@@ -237,6 +237,49 @@ def chat(
         )
 
 
+def chat_question(
+    question_text: str,
+    reference: str,
+    category: str,
+    mode: str,
+    message: str,
+    history: list[dict],
+) -> str:
+    """Interactive chat scoped to a single assessment question."""
+    mode_hint = (
+        "El usuario quiere entender qué significa esta pregunta y por qué es relevante."
+        if mode == "explain"
+        else "El usuario quiere saber cómo responder esta pregunta y qué evidencias necesita."
+    )
+    context = (
+        f"El usuario está completando un diagnóstico de cumplimiento de la Ley 1581 de 2012.\n"
+        f"Pregunta actual:\n"
+        f"  • Categoría: {category}\n"
+        f"  • Texto: {question_text}\n"
+        f"  • Referencia normativa: {reference}\n\n"
+        f"{mode_hint}\n"
+        "Responde de forma concisa y práctica enfocándote en esta pregunta específica."
+    )
+
+    if history:
+        conv = "\n\n".join(
+            f"{'Asesor' if m['role'] == 'assistant' else 'Usuario'}: {m['content']}"
+            for m in history
+        )
+        full_message = f"Conversación previa:\n{conv}\n\nNueva consulta: {message}"
+    else:
+        full_message = message
+
+    try:
+        return _run_agent(full_message, additional_instructions=context)
+    except Exception as e:
+        logger.error("Error en chat_question: %s", e, exc_info=True)
+        return (
+            "Lo siento, no pude procesar tu consulta. "
+            "Intenta de nuevo o consulta directamente la Ley 1581 de 2012."
+        )
+
+
 def interpret_score(score: float, company_name: str) -> str:
     level = "alto" if score >= 80 else "medio" if score >= 50 else "bajo"
     try:
