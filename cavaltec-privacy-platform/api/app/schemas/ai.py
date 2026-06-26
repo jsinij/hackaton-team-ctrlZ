@@ -54,6 +54,8 @@ class ChatRequest(BaseModel):
     assessment_id: str
     message: str
     history: list[ChatMessage] = []
+    file_name: Optional[str] = None
+    file_base64: Optional[str] = None
 
 
 class ChatResponse(BaseModel):

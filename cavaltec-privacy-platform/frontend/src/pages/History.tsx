@@ -35,6 +35,7 @@ export default function History() {
 
   const role = userProfile?.role ?? 'usuario'
   const canDelete = role === 'auditor' || role === 'admin'
+  const canDownload = role === 'auditor' || role === 'admin'
 
   useEffect(() => {
     let cancelled = false
@@ -178,7 +179,7 @@ export default function History() {
                   </td>
                   <td className="px-5 py-4">
                     <div className="flex items-center gap-3">
-                      {a.status === 'completed' && (
+                      {a.status === 'completed' && canDownload && (
                         <button
                           onClick={() => { void handleDownload(a) }}
                           disabled={downloadingId === a.id}

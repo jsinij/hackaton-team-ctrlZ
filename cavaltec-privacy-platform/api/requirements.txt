@@ -16,3 +16,4 @@ python-dotenv==1.0.1
 slowapi==0.1.9
 azure-ai-projects==1.0.0b11
 azure-identity==1.23.0
+PyPDF2==3.0.1

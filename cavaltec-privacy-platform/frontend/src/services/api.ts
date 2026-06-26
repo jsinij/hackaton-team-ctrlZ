@@ -247,11 +247,14 @@ export async function chatWithAgent(
   assessmentId: string,
   message: string,
   history: ChatMessage[],
+  file?: { name: string; base64: string },
 ): Promise<string> {
   const { data } = await client.post<{ message: string }>('/ai/chat', {
     assessment_id: assessmentId,
     message,
     history,
+    file_name: file?.name,
+    file_base64: file?.base64,
   })
   return data.message
 }

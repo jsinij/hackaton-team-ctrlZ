@@ -1,13 +1,31 @@
+import base64
+import io
 import logging
 
 from azure.ai.projects import AIProjectClient
 from azure.ai.agents.models import ListSortOrder
 from azure.identity import DeviceCodeCredential
+from PyPDF2 import PdfReader
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 _client: AIProjectClient | None = None
+
+
+def extract_pdf_text(base64_content: str) -> str:
+    try:
+        pdf_bytes = base64.b64decode(base64_content)
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        text_parts = []
+        for page in reader.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text_parts.append(page_text.strip())
+        return "\n\n".join(text_parts)
+    except Exception as e:
+        logger.error("Error extracting PDF text: %s", e, exc_info=True)
+        return ""
 
 
 def _device_code_callback(verification_uri: str, user_code: str, expires_on):
@@ -129,6 +147,8 @@ def chat(
     company_sector: str,
     message: str,
     history: list[dict],
+    file_content: str = "",
+    file_name: str = "",
 ) -> str:
     level = "alto" if score >= 80 else "medio" if score >= 50 else "bajo"
     gaps_text = (
@@ -142,6 +162,9 @@ def chat(
         f"  • Puntaje: {score}/100 — nivel {level}\n"
         f"  • Brechas identificadas ({len(gap_details)}):\n{gaps_text}"
     )
+
+    if file_content:
+        context += f"\n\nEl usuario adjuntó el archivo '{file_name}'. Contenido del documento:\n{file_content[:10000]}"
 
     if history:
         conv = "\n\n".join(

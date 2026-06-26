@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useApi } from '../hooks/useApi'
+import { useAuth } from '../hooks/useAuth'
 import {
   createAssessment,
   getAssessment,
@@ -222,10 +223,13 @@ type QuestionChatMode = 'explain' | 'guidance'
 
 export default function AssessmentChat() {
   const getClient = useApi()
+  const { userProfile } = useAuth()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
 
   const assessmentIdParam = searchParams.get('id')
+  const role = userProfile?.role ?? 'usuario'
+  const canDownload = role === 'auditor' || role === 'admin'
 
   // Show landing screen for new assessments; skip it when resuming via URL param
   const [started, setStarted] = useState(!!assessmentIdParam)
@@ -252,6 +256,10 @@ export default function AssessmentChat() {
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
+
+  // File attachment state
+  const [attachedFile, setAttachedFile] = useState<{ name: string; base64: string } | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Question chat drawer
   const [qChatMode, setQChatMode] = useState<QuestionChatMode | null>(null)
@@ -447,21 +455,51 @@ export default function AssessmentChat() {
 
   // ── Chat ───────────────────────────────────────────────────────────────────
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (file.type !== 'application/pdf') {
+      setError('Solo se permiten archivos PDF.')
+      return
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setError('El archivo no puede superar los 5 MB.')
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      const base64 = (reader.result as string).split(',')[1]
+      setAttachedFile({ name: file.name, base64 })
+    }
+    reader.readAsDataURL(file)
+
+    // Reset input so the same file can be selected again
+    e.target.value = ''
+  }
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!chatInput.trim() || !assessment || chatLoading) return
 
     const userMessage = chatInput.trim()
     setChatInput('')
+    const currentFile = attachedFile
+    setAttachedFile(null)
 
     const history = [...chatMessages]
-    const newMessages: ChatMessage[] = [...history, { role: 'user', content: userMessage }]
+    const displayContent = currentFile
+      ? `${userMessage}\n\n📎 Archivo adjunto: ${currentFile.name}`
+      : userMessage
+    const newMessages: ChatMessage[] = [...history, { role: 'user', content: displayContent }]
     setChatMessages(newMessages)
     setChatLoading(true)
 
     try {
       const client = await getClient()
-      const response = await chatWithAgent(client, assessment.id, userMessage, history)
+      const response = await chatWithAgent(client, assessment.id, userMessage, history, currentFile ?? undefined)
       setChatMessages([...newMessages, { role: 'assistant', content: response }])
     } catch {
       setChatMessages([...newMessages, {
@@ -688,16 +726,18 @@ export default function AssessmentChat() {
               </div>
               <div className="flex flex-col items-end gap-3 shrink-0">
                 <ScoreGauge score={result.score} size={110} />
-                <button
-                  onClick={() => { void handleDownload() }}
-                  disabled={downloading}
-                  className="text-xs text-blue-700 hover:text-blue-900 font-medium transition-colors disabled:opacity-50 flex items-center gap-1"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  {downloading ? 'Generando PDF...' : 'Descargar PDF'}
-                </button>
+                {canDownload && (
+                  <button
+                    onClick={() => { void handleDownload() }}
+                    disabled={downloading}
+                    className="text-xs text-blue-700 hover:text-blue-900 font-medium transition-colors disabled:opacity-50 flex items-center gap-1"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    {downloading ? 'Generando PDF...' : 'Descargar PDF'}
+                  </button>
+                )}
               </div>
             </div>
 
@@ -733,7 +773,41 @@ export default function AssessmentChat() {
 
               {/* Input */}
               <div className="px-5 py-3.5 border-t border-gray-100">
+                {attachedFile && (
+                  <div className="flex items-center gap-2 mb-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg">
+                    <svg className="w-4 h-4 text-blue-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <span className="text-xs text-blue-700 truncate flex-1">{attachedFile.name}</span>
+                    <button
+                      onClick={() => setAttachedFile(null)}
+                      className="text-blue-400 hover:text-blue-600 shrink-0"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
                 <form onSubmit={(e) => { void handleSendMessage(e) }} className="flex gap-2">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf"
+                    onChange={handleFileSelect}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={chatLoading}
+                    className="text-gray-400 hover:text-blue-700 transition-colors disabled:opacity-50 p-2"
+                    title="Adjuntar PDF"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                    </svg>
+                  </button>
                   <input
                     type="text"
                     value={chatInput}

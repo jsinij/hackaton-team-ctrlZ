@@ -174,6 +174,15 @@ def chat_with_agent(
     gap_details = get_gap_details(assessment.gaps or [])
     history = [{"role": m.role, "content": m.content} for m in body.history]
 
+    file_content = ""
+    if body.file_base64:
+        file_content = ai_service.extract_pdf_text(body.file_base64)
+        if not file_content:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No se pudo extraer texto del PDF. Verifica que el archivo sea válido.",
+            )
+
     response = ai_service.chat(
         score=assessment.score or 0.0,
         gap_details=gap_details,
@@ -181,6 +190,8 @@ def chat_with_agent(
         company_sector=company.sector if company else "desconocido",
         message=body.message,
         history=history,
+        file_content=file_content,
+        file_name=body.file_name or "",
     )
 
     return ChatResponse(message=response)
