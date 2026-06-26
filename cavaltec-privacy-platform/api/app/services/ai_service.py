@@ -1,21 +1,11 @@
-import json
 import logging
-import os
-import time
 
-import msal
 from azure.ai.projects import AIProjectClient
 from azure.ai.agents.models import ListSortOrder
-from azure.core.credentials import AccessToken
-from azure.identity import DeviceCodeCredential, TokenCachePersistenceOptions
+from azure.identity import DeviceCodeCredential
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
-
-# azure-identity's internal client ID (from MSAL cache inspection)
-_AZ_IDENTITY_CLIENT_ID = "04b07795-8ddb-461a-bbee-02f9e1bf7b46"
-# Cache written by DeviceCodeCredential with TokenCachePersistenceOptions + HOME=/app/auth
-_CACHE_FILE = "/app/auth/.IdentityService/msal.cache.nocae"
 
 _client: AIProjectClient | None = None
 
@@ -33,79 +23,14 @@ def _device_code_callback(verification_uri: str, user_code: str, expires_on):
     print(msg, flush=True)
 
 
-def _tenant_from_cache() -> str | None:
-    """Extract tenant ID from the MSAL cache home_account_id field."""
-    try:
-        with open(_CACHE_FILE) as f:
-            data = json.load(f)
-        for acc in data.get("Account", {}).values():
-            parts = acc.get("home_account_id", "").split(".")
-            if len(parts) == 2:
-                return parts[1]
-    except Exception:
-        pass
-    return None
-
-
-def _try_silent_msal(scopes: list[str]) -> AccessToken | None:
-    """Try a silent token refresh using the persisted MSAL cache."""
-    if not os.path.exists(_CACHE_FILE):
-        return None
-    tenant_id = _tenant_from_cache()
-    if not tenant_id:
-        return None
-    try:
-        cache = msal.SerializableTokenCache()
-        with open(_CACHE_FILE) as f:
-            cache.deserialize(f.read())
-        app = msal.PublicClientApplication(
-            client_id=_AZ_IDENTITY_CLIENT_ID,
-            authority=f"https://login.microsoftonline.com/{tenant_id}",
-            token_cache=cache,
-        )
-        accounts = app.get_accounts()
-        if not accounts:
-            return None
-        result = app.acquire_token_silent(scopes, account=accounts[0])
-        if result and "access_token" in result:
-            if cache.has_state_changed:
-                with open(_CACHE_FILE, "w") as f:
-                    f.write(cache.serialize())
-            logger.info("Token obtenido silenciosamente del cache.")
-            return AccessToken(
-                result["access_token"],
-                int(time.time()) + result.get("expires_in", 3600),
-            )
-    except Exception as exc:
-        logger.warning("Silent MSAL refresh failed: %s", exc)
-    return None
-
-
-class _SmartCredential:
-    """Tries silent MSAL refresh first; falls back to DeviceCodeCredential."""
-
-    def __init__(self):
-        self._device_code_cred = DeviceCodeCredential(
-            prompt_callback=_device_code_callback,
-            cache_persistence_options=TokenCachePersistenceOptions(
-                allow_unencrypted_storage=True
-            ),
-        )
-
-    def get_token(self, *scopes, **kwargs):
-        scope = list(scopes)
-        token = _try_silent_msal(scope)
-        if token:
-            return token
-        logger.info("Cache vacío o expirado — iniciando device code flow.")
-        return self._device_code_cred.get_token(*scopes, **kwargs)
-
-
 def _get_client() -> AIProjectClient:
     global _client
     if _client is None:
+        credential = DeviceCodeCredential(
+            prompt_callback=_device_code_callback,
+        )
         _client = AIProjectClient(
-            credential=_SmartCredential(),
+            credential=credential,
             endpoint=settings.azure_ai_project_endpoint,
         )
     return _client
