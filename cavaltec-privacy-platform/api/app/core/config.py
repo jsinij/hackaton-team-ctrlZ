@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     azure_ai_project_endpoint: str = ""
     azure_ai_agent_id: str = ""
 
+    azure_tenant_id: str = ""
+    azure_client_id: str = ""
+    azure_client_secret: str = ""
+
     backend_cors_origins: List[str] = ["http://localhost:3000"]
 
     @field_validator("backend_cors_origins", mode="before")

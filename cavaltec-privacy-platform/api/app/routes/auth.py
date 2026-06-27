@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from datetime import datetime, timezone
 from app.core.config import settings
 from app.core.database import get_db
@@ -38,15 +39,18 @@ def firebase_login(body: FirebaseLoginRequest, db: Session = Depends(get_db)):
         user.name = name or user.name
         user.updated_at = datetime.now(timezone.utc)
     else:
-        user = User(
-            firebase_uid=firebase_uid,
-            email=email,
-            name=name,
-            role="usuario",
-        )
-        db.add(user)
-
-    db.flush()
+        try:
+            user = User(
+                firebase_uid=firebase_uid,
+                email=email,
+                name=name,
+                role="usuario",
+            )
+            db.add(user)
+            db.flush()
+        except IntegrityError:
+            db.rollback()
+            user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
 
     if email.lower() == settings.admin_email.lower():
         user.role = "admin"

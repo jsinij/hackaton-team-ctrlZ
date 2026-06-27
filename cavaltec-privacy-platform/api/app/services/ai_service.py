@@ -4,7 +4,7 @@ import logging
 
 from azure.ai.projects import AIProjectClient
 from azure.ai.agents.models import ListSortOrder
-from azure.identity import DeviceCodeCredential
+from azure.identity import DeviceCodeCredential, ClientSecretCredential
 from PyPDF2 import PdfReader
 from app.core.config import settings
 
@@ -41,14 +41,28 @@ def _device_code_callback(verification_uri: str, user_code: str, expires_on):
     print(msg, flush=True)
 
 
+def _get_credential():
+    """
+    Returns ClientSecretCredential if SP credentials are configured (production),
+    otherwise falls back to DeviceCodeCredential (local development).
+    """
+    if settings.azure_tenant_id and settings.azure_client_id and settings.azure_client_secret:
+        logger.info("Using ClientSecretCredential for Azure AI (production mode)")
+        return ClientSecretCredential(
+            tenant_id=settings.azure_tenant_id,
+            client_id=settings.azure_client_id,
+            client_secret=settings.azure_client_secret,
+        )
+    else:
+        logger.info("Using DeviceCodeCredential for Azure AI (development mode)")
+        return DeviceCodeCredential(prompt_callback=_device_code_callback)
+
+
 def _get_client() -> AIProjectClient:
     global _client
     if _client is None:
-        credential = DeviceCodeCredential(
-            prompt_callback=_device_code_callback,
-        )
         _client = AIProjectClient(
-            credential=credential,
+            credential=_get_credential(),
             endpoint=settings.azure_ai_project_endpoint,
         )
     return _client
